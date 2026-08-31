@@ -4,7 +4,7 @@ author: Nicolas THIBAUT
 git_url: https://github.com/uppersafe/
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.2.2
+version: 1.2.3
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
@@ -29,11 +29,14 @@ from fastapi import Request, UploadFile
 from pydantic import BaseModel, Field
 from contextvars import ContextVar
 from functools import wraps
+from datetime import datetime
+
+from open_webui.models.users import UserModel
 from open_webui.models.config import Config
 from open_webui.models.files import Files
-from open_webui.models.users import UserModel
 from open_webui.internal.db import get_async_db_context
 from open_webui.routers.files import upload_file_handler
+from open_webui.retrieval.vector.async_client import ASYNC_VECTOR_DB_CLIENT
 from open_webui.routers.retrieval import (
     ProcessFileForm,
     process_file,
@@ -504,45 +507,49 @@ class Tools:
 
         total = 0
         end = False
-        while not end:
-            time.sleep(1)
-
-            data = session.api_fs_search_list(search_id, len(results))
-
-            entries = data.get("files", [])
-            total = data.get("total", total)
-            end = data.get("finished", False)
-
-            log.info(f"Collecting {len(entries)} new search entries")
-
-            for entry in entries:
-                entry_stat = entry.get("additional")
-                if self._filter_ext(entry.get("name"), filetypes):
-                    results.append(
-                        self._score_file(
-                            entry.get("name"),
-                            entry.get("path"),
-                            entry_stat.get("size"),
-                            entry_stat.get("time").get("atime"),
-                            entry_stat.get("time").get("mtime"),
-                            keywords,
-                        )
+        try:
+            while not end:
+                if int(time.monotonic()) >= timeout:
+                    raise TimeoutError(
+                        f"Timeout of search task after {self.valves.search_timeout} secs"
                     )
 
-            # Verify task status
-            if len(results) != total:
-                end = False
-            if int(time.monotonic()) >= timeout:
-                log.warning(
-                    f"Timeout of search task ({self.valves.search_timeout} secs)"
-                )
-                end = True
+                time.sleep(1)
+
+                data = session.api_fs_search_list(search_id, len(results))
+
+                entries = data.get("files", [])
+                total = data.get("total", total)
+                end = data.get("finished", False)
+
+                log.info(f"Collecting {len(entries)} new search entries")
+
+                for entry in entries:
+                    entry_stat = entry.get("additional")
+                    if self._filter_ext(entry.get("name"), filetypes):
+                        results.append(
+                            self._score_file(
+                                entry.get("path"),
+                                entry.get("name"),
+                                entry_stat.get("size"),
+                                entry_stat.get("time").get("atime"),
+                                entry_stat.get("time").get("mtime"),
+                                keywords,
+                            )
+                        )
+
+                # Verify task completion
+                if len(results) != total:
+                    end = False
+
+        except TimeoutError as e:
+            log.warning(e)
 
         # Cleanup task
         session.api_fs_search_clean(search_id)
 
         # Sort results and return best matches
-        return self._sort_results(results)
+        return self._sort_results(results, [("score", True), ("mtime", True)])
 
     def _browse_sftp(
         self,
@@ -578,8 +585,8 @@ class Tools:
                     if self._filter_ext(entry.filename, filetypes):
                         results.append(
                             self._score_file(
-                                entry.filename,
                                 entry_path,
+                                entry.filename,
                                 entry.st_size,
                                 entry.st_atime,
                                 entry.st_mtime,
@@ -589,11 +596,11 @@ class Tools:
                 elif stat.S_ISLNK(entry.st_mode):
                     log.warning(f"Skipping link {entry_path}")
 
-        except Exception as e:
-            log.error(f"Error while listing directory {path} ({e})")
+        except TimeoutError as e:
+            log.warning(e)
 
         # Sort results and return best matches
-        return self._sort_results(results)
+        return self._sort_results(results, [("score", True), ("mtime", True)])
 
     def _browse_samba(
         self,
@@ -629,8 +636,8 @@ class Tools:
                     if self._filter_ext(entry.name, filetypes):
                         results.append(
                             self._score_file(
-                                entry.name,
                                 entry.path,
+                                entry.name,
                                 entry_stat.st_size,
                                 entry_stat.st_atime,
                                 entry_stat.st_mtime,
@@ -640,11 +647,11 @@ class Tools:
                 elif entry.is_symlink():
                     log.warning(f"Skipping link {entry.path}")
 
-        except Exception as e:
-            log.error(f"Error while listing directory {path} ({e})")
+        except TimeoutError as e:
+            log.warning(e)
 
         # Sort results and return best matches
-        return self._sort_results(results)
+        return self._sort_results(results, [("score", True), ("mtime", True)])
 
     def _download_api(self, session, path: str) -> bytes:
         return session.api_fs_download(path)
@@ -728,8 +735,8 @@ class Tools:
 
     def _score_file(
         self,
-        name: str,
         path: str,
+        name: str,
         size: int,
         atime: int,
         mtime: int,
@@ -750,27 +757,27 @@ class Tools:
         # Calculate the weight of one character
         match_weight = match_weight / max(1.0, total_length)
 
-        # Calculate match with absolute path
-        score = score + sum(
-            match_size * match_weight for match_size in self._seq_match(path, keywords)
-        )
+        if path is not None:
+            # Calculate match with absolute path
+            score = score + sum(
+                match_size * match_weight
+                for match_size in self._seq_match(path, keywords)
+            )
 
         return {
-            "filename": name,
             "path": path,
-            "st_size": size,
-            "st_atime": atime,
-            "st_mtime": mtime,
-            "search_score": score,
+            "filename": name,
+            "size": size,
+            "atime": datetime.fromtimestamp(atime).astimezone().isoformat(),
+            "mtime": datetime.fromtimestamp(mtime).astimezone().isoformat(),
+            "score": score,
         }
 
-    def _sort_results(self, results: list) -> list:
-        # Sort files by score from newest to oldest
-        return sorted(
-            results,
-            key=lambda result: (result["search_score"], result["st_mtime"]),
-            reverse=True,
-        )[: self.valves.search_count]
+    def _sort_results(self, results: list, keys: list) -> list:
+        # Sort by keys from lowest to highest priority
+        for key, reverse in reversed(keys):
+            results.sort(key=lambda result: result[key], reverse=reverse)
+        return results[: self.valves.search_count]
 
     def _is_media(
         self,
@@ -786,7 +793,7 @@ class Tools:
         return str(" || ").join(keywords).encode("ascii", "replace").decode()
 
     def _extract_keywords(self, query: str) -> list:
-        if query is None or len(query) == 0:
+        if query is None or len(query.strip()) == 0:
             return []
 
         # Split query on special characters (space, tab, comma, etc) and remove linking words
@@ -937,7 +944,7 @@ class Tools:
     async def search_nas_files(
         self,
         query: str,
-        path: str = "/",
+        root: str = "/",
         filetypes: list = [],
         __request__: Request = None,
         __user__: dict = None,
@@ -948,10 +955,10 @@ class Tools:
         Search for files on NAS.
         Best to quickly identify relevant files.
 
-        :param query: The search query to look up without special operators or wildcards
-        :param path: The root directory to recursively look into (optional)
-        :param filetypes: A list of file extensions to look for (optional)
-        :return: JSON with results containing filename, absolute path, size in bytes, access time, modification time and search score of each file
+        :param query: The search keywords to look up without special operators or wildcards
+        :param root: The root directory to recursively look into (optional, defaults to "/")
+        :param filetypes: A list of file extensions to look for (optional, defaults to any)
+        :return: JSON with results containing absolute path, filename, size in bytes, access time, modification time and search score of each file
         """
         user, session, browse_handler, download_handler = self.context.get()
 
@@ -966,7 +973,7 @@ class Tools:
             browse_handler,
             session,
             query,
-            path,
+            root,
             filetypes,
         )
 
@@ -992,7 +999,7 @@ class Tools:
         Search for information in specific files on NAS.
         Best for efficient content retrieval.
 
-        :param query: The search query to use for RAG
+        :param query: The search query to look up with the RAG engine
         :param files: A list of path for files to look into
         :return: JSON with results containing filename, file ID and search snippets for each file
         """
