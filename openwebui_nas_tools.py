@@ -4,7 +4,7 @@ author: Nicolas THIBAUT
 git_url: https://github.com/uppersafe/
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.2.3
+version: 1.2.4
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
@@ -336,7 +336,7 @@ def with_context(func):
                 done=False,
             )
 
-            # Connect to NAS
+            # Connect to server
             session = await connect_handler(username, password, __event_call__)
 
             # Set context for this call
@@ -345,7 +345,7 @@ def with_context(func):
             return await func(self, *args, **kwargs)
 
         except SynologyAPIException as e:
-            log.error(f"{e} = {e.error}")
+            log.error(f"{e} ({e.error})" if e.error else str(e))
             return json.dumps({"error": str(e)})
 
         except Exception as e:
@@ -357,7 +357,7 @@ def with_context(func):
             if token is not None:
                 self.context.reset(token)
 
-            # Disconnect from NAS
+            # Disconnect from server
             if session is not None:
                 self._disconnect(session)
 
@@ -764,14 +764,27 @@ class Tools:
                 for match_size in self._seq_match(path, keywords)
             )
 
-        return {
+        return self._format_result(path, name, size, atime, mtime, score)
+
+    def _format_result(
+        self,
+        path: str,
+        name: str,
+        size: int,
+        atime: int,
+        mtime: int,
+        score: float = None,
+    ) -> dict:
+        result = {
             "path": path,
             "filename": name,
             "size": size,
             "atime": datetime.fromtimestamp(atime).astimezone().isoformat(),
             "mtime": datetime.fromtimestamp(mtime).astimezone().isoformat(),
-            "score": score,
         }
+        if score is not None:
+            result.update({"score": score})
+        return result
 
     def _sort_results(self, results: list, keys: list) -> list:
         # Sort by keys from lowest to highest priority
@@ -964,11 +977,11 @@ class Tools:
 
         await self._emit_status(
             __event_emitter__,
-            "Searching on NAS...",
+            "Searching for files...",
             done=False,
         )
 
-        # Browse files on NAS
+        # Browse files
         results = await asyncio.to_thread(
             browse_handler,
             session,

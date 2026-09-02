@@ -4,12 +4,11 @@ Search on NAS for information and fetch specific file content using Open WebUI's
 
 ## Features
 
-- Extracts keywords from search query and builds search pattern.
 - Searches for files recursively.
-- Ranks results using similarity scoring and modification time.
+- Ranks search results using keywords scoring and modification time.
 - Downloads files and processes content (except image, audio, and video files).
-- Caches uploaded files by content hash to avoid processing unchanged files multiple times.
-- Inspects files and retrieve relevant parts.
+- Caches files by content hash.
+- Inspects files and retrieves relevant parts.
 - Stores credentials in User Valves settings.
 - Supports multiple protocols:
   - Synology DSM/FileStation API (including OTP prompt for authentication)
@@ -22,7 +21,7 @@ Search on NAS for information and fetch specific file content using Open WebUI's
 
 Searches for files on the NAS and returns metadata.
 
-Parameters:
+Input parameters:
 
 | Parameter | Description |
 |---|---|
@@ -30,7 +29,7 @@ Parameters:
 | `root` | Root directory for recursive search (optional, defaults to `/`). |
 | `filetypes` | List of file extensions (optional, defaults to any). |
 
-Each result contains:
+The output contains for each result:
 
 - Absolute path
 - Filename
@@ -43,14 +42,14 @@ Each result contains:
 
 Retrieves specific files from NAS and uses Open WebUI's retrieval engine to find relevant parts.
 
-Parameters:
+Input parameters:
 
 | Parameter | Description |
 |---|---|
 | `query` | Search query. |
 | `files` | List of NAS files. |
 
-Each result contains:
+The output contains for each result:
 
 - Filename
 - Open WebUI file ID
@@ -60,13 +59,13 @@ Each result contains:
 
 Retrieves specific files from NAS and uses Open WebUI's file upload system to generate download links.
 
-Parameters:
+Input parameters:
 
 | Parameter | Description |
 |---|---|
 | `files` | List of NAS files. |
 
-Each result contains:
+The output contains for each result:
 
 - Filename
 - Open WebUI file ID
