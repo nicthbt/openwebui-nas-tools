@@ -4,7 +4,7 @@ author: Nicolas THIBAUT
 git_url: https://github.com/uppersafe/
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.2.4
+version: 1.2.5
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
@@ -234,17 +234,19 @@ class SynologyClient:
     def api_fs_search_start(self, pattern: str, path: str) -> str:
         api_url, api_version = self.api.get("SYNO.FileStation.Search")
 
-        path = path if path != "/" else self.api_fs_list()
+        path = path.rstrip("/") if path != "/" else self.api_fs_list()
 
         data = {
             "api": "SYNO.FileStation.Search",
             "version": api_version,
             "method": "start",
+            "recursive": True,
             "folder_path": json.dumps(path, separators=(",", ":")),
-            "recursive": "true",
             "filetype": json.dumps("file", separators=(",", ":")),
-            "pattern": json.dumps(pattern, separators=(",", ":")),
         }
+
+        if pattern is not None:
+            data.update({"pattern": json.dumps(pattern, separators=(",", ":"))})
 
         response = self._api_call(api_url, data)
 
@@ -279,7 +281,7 @@ class SynologyClient:
             "api": "SYNO.FileStation.Search",
             "version": api_version,
             "method": "clean",
-            "taskid": taskid,
+            "taskid": json.dumps(taskid, separators=(",", ":")),
         }
 
         response = self._api_call(api_url, data)
@@ -802,6 +804,8 @@ class Tools:
         return False
 
     def _build_pattern(self, keywords: list) -> str:
+        if len(keywords) == 0:
+            return None
         # Replace non ascii characters by ?
         return str(" || ").join(keywords).encode("ascii", "replace").decode()
 
@@ -833,16 +837,20 @@ class Tools:
         file_id = cache_value.get("id", None)
         file_collection = cache_value.get("collection", None)
 
-        file = None
+        cleanup = False
+
         if file_id is not None:
             file = await Files.get_file_by_id(file_id)
+            if not file:
+                cleanup = True
 
-        collection = None
         if file_collection is not None:
             collection = await ASYNC_VECTOR_DB_CLIENT.has_collection(file_collection)
+            if not collection:
+                cleanup = True
 
-        # Delete cache if file or collection no longer exists
-        if file is None or collection is False:
+        # Delete cache if file or collection no longer exist
+        if cleanup:
             log.warning(f"Deleting cache for {cache_key}")
             await Config.delete(cache_key)
             return None, None
@@ -956,8 +964,8 @@ class Tools:
     @with_context
     async def search_nas_files(
         self,
-        query: str,
-        root: str = "/",
+        query: str = None,
+        path: str = "/",
         filetypes: list = [],
         __request__: Request = None,
         __user__: dict = None,
@@ -968,8 +976,8 @@ class Tools:
         Search for files on NAS.
         Best to quickly identify relevant files.
 
-        :param query: The search keywords to look up without special operators or wildcards
-        :param root: The root directory to recursively look into (optional, defaults to "/")
+        :param query: The search keywords to look up without special operators or wildcards (optional)
+        :param path: The root directory to recursively look into (optional, defaults to "/")
         :param filetypes: A list of file extensions to look for (optional, defaults to any)
         :return: JSON with results containing absolute path, filename, size in bytes, access time, modification time and search score of each file
         """
@@ -986,7 +994,7 @@ class Tools:
             browse_handler,
             session,
             query,
-            root,
+            path,
             filetypes,
         )
 

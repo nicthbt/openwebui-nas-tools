@@ -25,8 +25,8 @@ Input parameters:
 
 | Parameter | Description |
 |---|---|
-| `query` | Search query. |
-| `root` | Root directory for recursive search (optional, defaults to `/`). |
+| `query` | Search query (optional). |
+| `path` | Root directory for recursive search (optional, defaults to `/`). |
 | `filetypes` | List of file extensions (optional, defaults to any). |
 
 The output contains for each result:
