@@ -4,7 +4,7 @@ author: Nicolas THIBAUT
 git_url: https://github.com/uppersafe/
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.2.6
+version: 1.2.7
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
@@ -45,6 +45,22 @@ from open_webui.routers.retrieval import (
 )
 
 log = logging.getLogger(__name__)
+
+# Add missing mimetypes
+msoffice = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+libreoffice = {
+    ".odt": "application/vnd.oasis.opendocument.text",
+    ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+    ".odp": "application/vnd.oasis.opendocument.presentation",
+}
+for extension, mimetype in msoffice.items():
+    mimetypes.add_type(mimetype, extension)
+for extension, mimetype in libreoffice.items():
+    mimetypes.add_type(mimetype, extension)
 
 
 class SambaCache(dict):
