@@ -6,10 +6,10 @@ Search on NAS for information and fetch specific file content using Open WebUI's
 
 - Searches for files recursively.
 - Ranks search results using keywords scoring and modification time.
-- Downloads files and processes content (except image, audio, and video files).
+- Downloads files and processes content in vector database (except image, audio, and video files).
 - Caches files by content hash.
 - Inspects files and retrieves relevant parts.
-- Stores credentials in User Valves settings.
+- Secures identity and access management with isolated/user-based authentication.
 - Supports multiple protocols:
   - Synology DSM/FileStation API (including OTP prompt for authentication)
   - SFTP
@@ -51,8 +51,8 @@ Input parameters:
 
 The output contains for each result:
 
-- Filename
 - Open WebUI file ID
+- Filename
 - Text snippets
 
 ### `fetch_nas_files`
@@ -67,18 +67,20 @@ Input parameters:
 
 The output contains for each result:
 
-- Filename
 - Open WebUI file ID
+- Filename
+- Size in bytes
+- Content type
 - Download URL
 
 ## Installation
 
-1. Go to Workspace in Open WebUI.
-2. Create a new tool from the Tools tab.
+1. Go to `Workspace` in Open WebUI.
+2. Create a new tool from the `Tools` tab.
 3. Paste the content of `openwebui_nas_tools.py` and save the tool.
-4. Configure the NAS username and password for each user.
+4. Enable the tool in your custom model in `Models`.
 5. Configure the tool valves to change default settings.
-6. Enable the tool in your custom model.
+6. Configure the NAS username and password for each user.
 
 ## Configuration
 
@@ -110,9 +112,11 @@ When `port` is not set, the protocol default port is used:
 
 ## Security
 
-- Enable encryption to store credentials (set a strong `WEBUI_SECRET_KEY` and set `ENABLE_VALVE_ENCRYPTION` to `true`).
-- Do not use an administrator account.
-- Restrict network access between Open WebUI and the NAS.
+**Enable encryption** to securely store credentials:
+- Set `WEBUI_SECRET_KEY` (generate a secure key with `openssl rand -hex 32`).
+- Set `ENABLE_VALVE_ENCRYPTION` to `true`.
+
+Restrict network access between Open WebUI and the calendar server.
 
 ## Compatibility
 
@@ -122,7 +126,9 @@ The tool imports internal Open WebUI modules, so compatibility with earlier or l
 
 ## Requirements
 
-Allow Open WebUI to install listed requirements (set `ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS` to `true` and `OFFLINE_MODE` to `false`).
+Allow Open WebUI to install listed requirements:
+- Set `ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS` to `true`.
+- Set `OFFLINE_MODE` to `false`.
 
 The tool relies on 3rd party Python packages:
 - [requests](https://github.com/psf/requests) (for Synology API)

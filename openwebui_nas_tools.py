@@ -4,7 +4,7 @@ author: Nicolas THIBAUT
 git_url: https://github.com/uppersafe/
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.2.5
+version: 1.2.6
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
@@ -318,6 +318,7 @@ def with_context(func):
         try:
             __request__ = kwargs.get("__request__", None)
             __user__ = kwargs.get("__user__", None)
+            __metadata__ = kwargs.get("__metadata__", None)
             __event_emitter__ = kwargs.get("__event_emitter__", None)
             __event_call__ = kwargs.get("__event_call__", None)
 
@@ -325,6 +326,11 @@ def with_context(func):
                 raise ValueError("Request context not available")
             if __user__ is None:
                 raise ValueError("User context not available")
+            if __metadata__ is None:
+                raise ValueError("Metadata context not available")
+            else:
+                if __metadata__.get("files", None) is None:
+                    __metadata__["files"] = []
 
             user = UserModel(**__user__)
             username, password = self._get_credentials(__user__.get("valves"))
@@ -779,7 +785,7 @@ class Tools:
     ) -> dict:
         result = {
             "path": path,
-            "filename": name,
+            "name": name,
             "size": size,
             "atime": datetime.fromtimestamp(atime).astimezone().isoformat(),
             "mtime": datetime.fromtimestamp(mtime).astimezone().isoformat(),
@@ -925,6 +931,21 @@ class Tools:
 
             return file_id, file_collection
 
+    async def _emit_files(
+        self,
+        event_emitter,
+        files: list,
+    ) -> None:
+        if event_emitter:
+            await event_emitter(
+                {
+                    "type": "files",
+                    "data": {
+                        "files": [{**file, "type": "file"} for file in files],
+                    },
+                }
+            )
+
     async def _emit_status(
         self,
         event_emitter,
@@ -969,8 +990,9 @@ class Tools:
         filetypes: list = [],
         __request__: Request = None,
         __user__: dict = None,
-        __event_emitter__=None,
-        __event_call__=None,
+        __metadata__: dict = None,
+        __event_emitter__: callable = None,
+        __event_call__: callable = None,
     ) -> str:
         """
         Search for files on NAS.
@@ -1013,16 +1035,17 @@ class Tools:
         files: list,
         __request__: Request = None,
         __user__: dict = None,
-        __event_emitter__=None,
-        __event_call__=None,
+        __metadata__: dict = None,
+        __event_emitter__: callable = None,
+        __event_call__: callable = None,
     ) -> str:
         """
         Search for information in specific files on NAS.
-        Best for efficient content retrieval.
+        Best for semantic content retrieval.
 
         :param query: The search query to look up with the RAG engine
         :param files: A list of path for files to look into
-        :return: JSON with results containing filename, file ID and search snippets for each file
+        :return: JSON with results containing file ID, filename and search snippets for each file
         """
         user, session, browse_handler, download_handler = self.context.get()
 
@@ -1085,8 +1108,8 @@ class Tools:
                 results.update(
                     {
                         source_hash: {
-                            "filename": name,
                             "id": source,
+                            "name": name,
                             "snippets": snippets + [document],
                         }
                     }
@@ -1106,15 +1129,16 @@ class Tools:
         files: list,
         __request__: Request = None,
         __user__: dict = None,
-        __event_emitter__=None,
-        __event_call__=None,
+        __metadata__: dict = None,
+        __event_emitter__: callable = None,
+        __event_call__: callable = None,
     ) -> str:
         """
-        Fetch specific files on NAS.
-        Best to generate download URL.
+        Fetch specific files on NAS and generate download URL.
+        Best for raw content retrieval.
 
         :param files: A list of path for files to fetch
-        :return: JSON with results containing filename, file ID and download URL for each file
+        :return: JSON with results containing file ID, filename, size in bytes, content type and download URL for each file
         """
         user, session, browse_handler, download_handler = self.context.get()
 
@@ -1151,15 +1175,26 @@ class Tools:
             results.update(
                 {
                     file_id: {
-                        "filename": filename,
                         "id": file_id,
-                        "url": (
-                            f'{str(__request__.base_url).rstrip("/")}'
-                            f"/api/v1/files/{file_id}/content?attachment=true"
+                        "name": filename,
+                        "size": len(content),
+                        "content_type": mimetype,
+                        "url": __request__.app.url_path_for(
+                            "get_file_content_by_id",
+                            id=file_id,
+                            file_name=filename,
                         ),
                     }
                 }
             )
+
+        # Add files to chat metadata
+        __metadata__["files"].extend(list(results.values()))
+
+        await self._emit_files(
+            __event_emitter__,
+            list(results.values()),
+        )
 
         await self._emit_status(
             __event_emitter__,
