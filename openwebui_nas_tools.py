@@ -4,7 +4,7 @@ author: Nicolas THIBAUT
 git_url: https://github.com/uppersafe/
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.2.7
+version: 1.3.0
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
@@ -947,6 +947,38 @@ class Tools:
 
             return file_id, file_collection
 
+    async def _emit_sources(
+        self,
+        event_emitter,
+        sources: list,
+    ) -> None:
+        for source in sources:
+            file_id = source.get("file_id")
+            filename = source.get("name")
+            snippets = source.get("snippets")
+            if event_emitter:
+                await event_emitter(
+                    {
+                        "type": "source",
+                        "data": {
+                            "source": {
+                                "id": file_id,
+                                "name": filename,
+                                "type": "file",
+                            },
+                            "document": snippets,
+                            "metadata": [
+                                {
+                                    "file_id": file_id,
+                                    "name": filename,
+                                    "source": filename,
+                                }
+                                for snippet in snippets
+                            ],
+                        },
+                    }
+                )
+
     async def _emit_files(
         self,
         event_emitter,
@@ -1115,21 +1147,25 @@ class Tools:
             collection_results.get("documents", []),
         ):
             for distance, metadata, document in zip(distances, metadatas, documents):
-                name = metadata.get("name")
-                source = metadata.get("file_id")
-                source_hash = blake2b(source.encode()).hexdigest()
+                file_id = metadata.get("file_id")
+                filename = metadata.get("name")
                 # Get existing snippets if source already in results
-                snippets = results.get(source_hash, {}).get("snippets", [])
+                snippets = results.get(file_id, {}).get("snippets", [])
                 # Add new source to results or update existing source with new snippets
                 results.update(
                     {
-                        source_hash: {
-                            "id": source,
-                            "name": name,
+                        file_id: {
+                            "id": file_id,
+                            "name": filename,
                             "snippets": snippets + [document],
                         }
                     }
                 )
+
+        await self._emit_sources(
+            __event_emitter__,
+            list(results.values()),
+        )
 
         await self._emit_status(
             __event_emitter__,
