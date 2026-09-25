@@ -4,7 +4,7 @@ author: Nicolas THIBAUT
 git_url: https://github.com/uppersafe/
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.3.1
+version: 1.3.2
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
@@ -107,12 +107,13 @@ class SynologyClient:
     def _api_call(
         self,
         url: str,
-        data: dict = {},
+        data: dict = None,
         stream: bool = False,
         timeout: int = 10,
     ) -> dict | bytes:
         # Insert session ID to authenticate request
         if self.sid is not None:
+            data = data or {}
             data.update({"_sid": self.sid})
 
         response = self.http.get(
