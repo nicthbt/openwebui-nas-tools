@@ -52,7 +52,7 @@ Input parameters:
 The output contains for each result:
 
 - Open WebUI file ID
-- Filename
+- Source path
 - Text snippets
 
 ### `fetch_nas_files`
