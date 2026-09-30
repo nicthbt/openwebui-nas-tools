@@ -4,7 +4,7 @@ author: Nicolas THIBAUT
 git_url: https://github.com/uppersafe/
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.3.4
+version: 1.4.0
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
@@ -324,6 +324,114 @@ class SynologyClient:
         )
 
         return response
+
+
+class OpenTerminalException(Exception):
+    pass
+
+
+class OpenTerminalClient:
+    def __init__(self, __request__, __metadata__):
+        self.http = requests.Session()
+        self.http.cookies.update(__request__.cookies)
+
+        # Forward auth header
+        authorization = __request__.headers.get("Authorization", None)
+        if authorization is not None:
+            self.http.headers.update({"Authorization": authorization})
+
+        # Forward chat ID
+        chat_id = __metadata__.get("chat_id", None)
+        if chat_id is not None:
+            self.http.headers.update({"X-Session-Id": chat_id})
+
+        # Extract terminal ID
+        terminal_id = __metadata__.get("terminal_id", None)
+        if terminal_id is None:
+            raise OpenTerminalException("No terminal set for this chat")
+
+        # Extract internal server
+        host, port = __request__.scope.get("server", None) or (None, None)
+        if host is None or port is None:
+            raise OpenTerminalException("Unable to detect internal server")
+
+        # Build API routes
+        self.server = f"http://{host}:{port}"
+        self.api = {
+            "CWD": __request__.app.url_path_for(
+                "proxy_terminal",
+                server_id=terminal_id,
+                path="files/cwd",
+            ).make_absolute_url(base_url=self.server),
+            "UPLOAD": __request__.app.url_path_for(
+                "proxy_terminal",
+                server_id=terminal_id,
+                path="files/upload",
+            ).make_absolute_url(base_url=self.server),
+            "VIEW": __request__.app.url_path_for(
+                "proxy_terminal",
+                server_id=terminal_id,
+                path="files/view",
+            ).make_absolute_url(base_url=self.server),
+        }
+
+    def __del__(self):
+        self.http.close()
+
+    def get_cwd(self, timeout: int = 10) -> str:
+        response = self.http.get(
+            self.api.get("CWD"),
+            timeout=timeout,
+        )
+        response.raise_for_status()
+
+        # Load response as JSON
+        response_json = response.json()
+
+        return response_json.get("cwd", None)
+
+    def upload_file(
+        self,
+        filename: str,
+        mimetype: str,
+        content: bytes,
+        directory: str = None,
+        timeout: int = 60,
+    ) -> dict:
+        response = self.http.post(
+            self.api.get("UPLOAD"),
+            params={"directory": directory or self.get_cwd()},
+            files={"file": (filename, content, mimetype or "application/octet-stream")},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+
+        # Load response as JSON
+        response_json = response.json()
+
+        path = response_json.get("path", None)
+        size = response_json.get("size", None)
+
+        return {
+            "path": path,
+            "name": filename,
+            "size": size,
+            "content_type": mimetype,
+        }
+
+    def download_file(self, path: str, timeout: int = 60) -> bytes:
+        response = self.http.get(
+            self.api.get("VIEW"),
+            params={"path": path},
+            stream=True,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+
+        content = bytearray()
+        for chunk in response.iter_content(chunk_size=65536):
+            content.extend(chunk)
+        return bytes(content)
 
 
 def with_context(func):
@@ -1003,7 +1111,14 @@ class Tools:
                 {
                     "type": "files",
                     "data": {
-                        "files": [{**file, "type": "file"} for file in files],
+                        "files": [
+                            (
+                                {**file, "type": "filesystem"}
+                                if file.get("id", None) is None
+                                else {**file, "type": "file"}
+                            )
+                            for file in files
+                        ],
                     },
                 }
             )
@@ -1058,7 +1173,7 @@ class Tools:
     ) -> str:
         """
         Search for files on NAS.
-        Best to quickly identify relevant files.
+        Best for quickly identifying relevant files.
 
         :param query: The search keywords to look up without special operators or wildcards (optional)
         :param path: The root directory to recursively look into (optional, defaults to "/")
@@ -1088,7 +1203,7 @@ class Tools:
             done=True,
         )
 
-        return json.dumps(list(results), ensure_ascii=False)
+        return json.dumps(results, ensure_ascii=False)
 
     @with_context
     async def inspect_nas_files(
@@ -1204,11 +1319,11 @@ class Tools:
         __event_call__: callable = None,
     ) -> str:
         """
-        Fetch specific files on NAS and generate download URL.
-        Best for raw content retrieval.
+        Fetch specific files on NAS and attach them to the conversation.
+        Best for downloading raw files and processing them with other tools.
 
         :param files: A list of path for files to fetch
-        :return: JSON with results containing file ID, filename, size in bytes, content type and download URL for each file
+        :return: JSON with results containing file ID or filesystem path, filename, size in bytes and content type for each file
         """
         user, session, browse_handler, download_handler = self.context.get()
 
@@ -1218,7 +1333,14 @@ class Tools:
             done=False,
         )
 
-        results = {}
+        # Init Open Terminal client
+        terminal = None
+        try:
+            terminal = OpenTerminalClient(__request__, __metadata__)
+        except OpenTerminalException as e:
+            log.warning(e)
+
+        results = []
 
         for path in files:
             filename = os.path.basename(path)
@@ -1231,40 +1353,40 @@ class Tools:
             log.info(f"Downloading '{path}'")
             content = await asyncio.to_thread(download_handler, session, path)
 
-            # Upload file but do not process content
-            file_id, file_collection = await self._upload_file(
-                path,
-                filename,
-                mimetype,
-                content,
-                process=False,
-                user=user,
-                __request__=__request__,
-            )
-
-            # Build download link
-            results.update(
-                {
-                    file_id: {
-                        "id": file_id,
-                        "name": filename,
-                        "size": len(content),
-                        "content_type": mimetype,
-                        "url": __request__.app.url_path_for(
-                            "get_file_content_by_id",
-                            id=file_id,
-                            file_name=filename,
-                        ),
-                    }
+            if terminal is not None:
+                # Upload file to Open Terminal
+                result = await asyncio.to_thread(
+                    terminal.upload_file,
+                    filename,
+                    mimetype,
+                    content,
+                )
+                results.append(result)
+            else:
+                # Upload file but do not process content
+                file_id, file_collection = await self._upload_file(
+                    path,
+                    filename,
+                    mimetype,
+                    content,
+                    process=False,
+                    user=user,
+                    __request__=__request__,
+                )
+                result = {
+                    "id": file_id,
+                    "name": filename,
+                    "size": len(content),
+                    "content_type": mimetype,
                 }
-            )
+                results.append(result)
 
-        # Add files to chat metadata
-        __metadata__["files"].extend(list(results.values()))
+                # Add files to chat metadata for Pyodide
+                __metadata__["files"].append(result)
 
         await self._emit_files(
             __event_emitter__,
-            list(results.values()),
+            results,
         )
 
         await self._emit_status(
@@ -1273,4 +1395,4 @@ class Tools:
             done=True,
         )
 
-        return json.dumps(list(results.values()), ensure_ascii=False)
+        return json.dumps(results, ensure_ascii=False)

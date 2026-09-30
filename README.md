@@ -10,6 +10,7 @@ Search on NAS for information and fetch specific file content using Open WebUI's
 - Caches files by content hash.
 - Inspects files and retrieves relevant parts.
 - Secures identity and access management with isolated/user-based authentication.
+- Integrates with Pyodide and Open Terminal.
 - Supports multiple protocols:
   - Synology DSM/FileStation API (including OTP prompt for authentication)
   - SFTP
@@ -67,11 +68,10 @@ Input parameters:
 
 The output contains for each result:
 
-- Open WebUI file ID
+- Open WebUI file ID or Open Terminal path
 - Filename
 - Size in bytes
 - Content type
-- Download URL
 
 ## Installation
 
