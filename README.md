@@ -32,7 +32,7 @@ Input parameters:
 
 The output contains for each result:
 
-- Absolute path
+- NAS path
 - Filename
 - Size in bytes
 - Access time
@@ -116,7 +116,7 @@ When `port` is not set, the protocol default port is used:
 - Set `WEBUI_SECRET_KEY` (generate a secure key with `openssl rand -hex 32`).
 - Set `ENABLE_VALVE_ENCRYPTION` to `true`.
 
-Restrict network access between Open WebUI and the calendar server.
+Restrict network access between Open WebUI and the NAS.
 
 ## Compatibility
 
