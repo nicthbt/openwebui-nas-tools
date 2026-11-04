@@ -4,7 +4,7 @@ author: Nicolas THIBAUT
 git_url: https://github.com/nicthbt/openwebui-nas-tools
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.5.0
+version: 1.5.2
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
@@ -25,8 +25,7 @@ from pydantic import BaseModel, Field
 
 from src.clients.synology_client import SynologyClient, SynologyOTPException
 from src.clients.terminal_client import OpenTerminalClient, OpenTerminalException
-from src.common.base import CustomTool
-from src.common.decorators import with_context
+from src.common.decorators import custom_tool, with_context
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +38,8 @@ class SambaCache(dict):
         )
 
 
-class Tools(CustomTool):
+@custom_tool
+class Tools:
     class UserValves(BaseModel):
         username: str = Field(
             title="NAS username",
