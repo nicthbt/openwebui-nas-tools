@@ -11,7 +11,7 @@ Search on NAS for information and fetch specific file content using Open WebUI's
 - 📄 Inspects files and retrieves relevant parts.
 - 🔐 Secures identity and access management with isolated/user-based authentication.
 - 🧩 Integrates with Pyodide and Open Terminal.
-- 🌐 Supports multiple protocols:
+- 🔌 Supports multiple protocols:
   - Synology DSM/FileStation API (including OTP prompt for authentication)
   - SFTP
   - Samba/SMB
