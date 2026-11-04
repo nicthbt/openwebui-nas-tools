@@ -2,23 +2,23 @@
 
 Search on NAS for information and fetch specific file content using Open WebUI's RAG engine.
 
-## Features
+## ✨ Features
 
-- Searches for files recursively.
-- Ranks search results using keywords scoring and modification time.
-- Downloads files and processes content in vector database (except image, audio, and video files).
-- Caches files by content hash.
-- Inspects files and retrieves relevant parts.
-- Secures identity and access management with isolated/user-based authentication.
-- Integrates with Pyodide and Open Terminal.
-- Supports multiple protocols:
+- 🔍 Searches for files recursively.
+- 🏆 Ranks search results using keywords scoring and modification time.
+- 📥 Downloads files and processes content in vector database (except image, audio, and video files).
+- ⚡ Caches files by content hash.
+- 📄 Inspects files and retrieves relevant parts.
+- 🔐 Secures identity and access management with isolated/user-based authentication.
+- 🧩 Integrates with Pyodide and Open Terminal.
+- 🌐 Supports multiple protocols:
   - Synology DSM/FileStation API (including OTP prompt for authentication)
   - SFTP
   - Samba/SMB
 
-## Available tools
+## 🛠️ Available tools
 
-### `search_nas_files`
+### 🔍 `search_nas_files`
 
 Searches for files on the NAS and returns metadata.
 
@@ -39,7 +39,7 @@ The output contains for each result:
 - Modification time
 - Search score
 
-### `inspect_nas_files`
+### 📄 `inspect_nas_files`
 
 Retrieves specific files from NAS and uses Open WebUI's retrieval engine to find relevant parts.
 
@@ -56,7 +56,7 @@ The output contains for each result:
 - Source path
 - Text snippets
 
-### `fetch_nas_files`
+### 📥 `fetch_nas_files`
 
 Retrieves specific files from NAS and uses Open WebUI's file upload system to generate download links.
 
@@ -73,7 +73,7 @@ The output contains for each result:
 - Size in bytes
 - Content type
 
-## Installation
+## 📦 Installation
 
 1. Go to `Workspace` in Open WebUI.
 2. Create a new tool from the `Tools` tab.
@@ -82,16 +82,16 @@ The output contains for each result:
 5. Configure the tool valves to change default settings.
 6. Configure the NAS username and password for each user.
 
-## Configuration
+## ⚙️ Configuration
 
-### User Valves
+### 👤 User Valves
 
 | Setting | Description |
 |---|---|
 | `username` | NAS account username. |
 | `password` | NAS account password. |
 
-### Tool Valves
+### 🔧 Tool Valves
 
 | Setting | Default | Description |
 |---|---:|---|
@@ -110,7 +110,7 @@ When `port` is not set, the protocol default port is used:
 | SFTP | `22` |
 | Samba/SMB | `445` |
 
-## Security
+## 🛡️ Security
 
 **Enable encryption** to securely store credentials:
 - Set `WEBUI_SECRET_KEY` (generate a secure key with `openssl rand -hex 32`).
@@ -118,13 +118,13 @@ When `port` is not set, the protocol default port is used:
 
 Restrict network access between Open WebUI and the NAS.
 
-## Compatibility
+## ✅ Compatibility
 
-Tested with **Open WebUI 0.10.2**.
+Tested **from Open WebUI 0.10.2 to 0.12.5**.
 
 The tool imports internal Open WebUI modules, so compatibility with earlier or later releases is not guaranteed.
 
-## Requirements
+## 📌 Requirements
 
 Allow Open WebUI to install listed requirements:
 - Set `ENABLE_PIP_INSTALL_FRONTMATTER_REQUIREMENTS` to `true`.
@@ -135,6 +135,6 @@ The tool relies on 3rd party Python packages:
 - [paramiko](https://github.com/paramiko/paramiko) (for SFTP)
 - [smbprotocol](https://github.com/jborean93/smbprotocol) (for Samba/SMB)
 
-## License
+## ℹ️ License
 
 [GNU AGPLv3](LICENSE)
