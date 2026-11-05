@@ -1077,7 +1077,6 @@ class Tools:
                         results.append(
                             self._score_file(
                                 entry.get("path"),
-                                entry.get("name"),
                                 entry_stat.get("size"),
                                 entry_stat.get("time").get("atime"),
                                 entry_stat.get("time").get("mtime"),
@@ -1135,7 +1134,6 @@ class Tools:
                         results.append(
                             self._score_file(
                                 entry_path,
-                                entry.filename,
                                 entry.st_size,
                                 entry.st_atime,
                                 entry.st_mtime,
@@ -1187,7 +1185,6 @@ class Tools:
                         results.append(
                             self._score_file(
                                 entry.path,
-                                entry.name,
                                 entry_stat.st_size,
                                 entry_stat.st_atime,
                                 entry_stat.st_mtime,
@@ -1220,72 +1217,86 @@ class Tools:
                 content.extend(chunk)
         return bytes(content)
 
-    def _write_api(
+    async def _write_api(
         self,
         session,
         path: str,
         content: bytes,
-        overwrite: bool = False,
-    ) -> dict | None:
+        __event_call__: callable = None,
+    ) -> dict:
         # Check that the destination file exists
         try:
-            session.api_fs_info(path)
+            await asyncio.to_thread(session.api_fs_info, path)
             exists = True
         except SynologyENOENTException:
             exists = False
 
-        if exists and not overwrite:
-            return None
+        if exists:
+            overwrite = await self._ask_confirmation(__event_call__, path)
+            if not overwrite:
+                raise ValueError(f"Overwrite of '{path}' was rejected")
 
-        session.api_fs_upload(path, content, overwrite=overwrite)
+        await asyncio.to_thread(session.api_fs_upload, path, content, True)
 
         return self._format_result(path, len(content))
 
-    def _write_sftp(
+    async def _write_sftp(
         self,
         session,
         path: str,
         content: bytes,
-        overwrite: bool = False,
-    ) -> dict | None:
+        __event_call__: callable = None,
+    ) -> dict:
         # Check that the destination file exists
         try:
-            session.stat(path)
+            await asyncio.to_thread(session.stat, path)
             exists = True
         except OSError as e:
             if e.errno != errno.ENOENT:
                 raise
             exists = False
 
-        if exists and not overwrite:
-            return None
+        if exists:
+            overwrite = await self._ask_confirmation(__event_call__, path)
+            if not overwrite:
+                raise ValueError(f"Overwrite of '{path}' was rejected")
 
-        with session.open(path, mode="wb") as f:
-            f.write(content)
+        def write():
+            with session.open(path, mode="wb") as f:
+                f.write(content)
+
+        await asyncio.to_thread(write)
 
         return self._format_result(path, len(content))
 
-    def _write_samba(
+    async def _write_samba(
         self,
         session,
         path: str,
         content: bytes,
-        overwrite: bool = False,
-    ) -> dict | None:
+        __event_call__: callable = None,
+    ) -> dict:
         # Check that the destination file exists
         try:
-            smbclient.stat(path, connection_cache=session)
+            await asyncio.to_thread(smbclient.stat, path, connection_cache=session)
             exists = True
         except OSError as e:
             if e.errno != errno.ENOENT:
                 raise
             exists = False
 
-        if exists and not overwrite:
-            return None
+        if exists:
+            overwrite = await self._ask_confirmation(__event_call__, path)
+            if not overwrite:
+                raise ValueError(f"Overwrite of '{path}' was rejected")
 
-        with smbclient.open_file(path, mode="wb", connection_cache=session) as f:
-            f.write(content)
+        def write():
+            with smbclient.open_file(
+                path, mode="wb", connection_cache=session
+            ) as f:
+                f.write(content)
+
+        await asyncio.to_thread(write)
 
         return self._format_result(path, len(content))
 
@@ -1302,7 +1313,6 @@ class Tools:
     def _score_file(
         self,
         path: str,
-        name: str,
         size: int,
         atime: int,
         mtime: int,
@@ -1314,8 +1324,8 @@ class Tools:
         # Calculate the keywords total length
         total_length = sum(len(keyword) for keyword in keywords)
 
-        # Guess mimetype from filename
-        mimetype, encoding = mimetypes.guess_type(name)
+        # Guess mimetype from path
+        mimetype, encoding = mimetypes.guess_type(path)
 
         # Lower weight for image, audio and video files
         match_weight = 0.5 if self._is_media(mimetype) else 1.0
@@ -1395,7 +1405,7 @@ class Tools:
                     "type": "confirmation",
                     "data": {
                         "title": "Overwrite file",
-                        "message": f"Do you want to overwriting existing file '{path}' with new content?",
+                        "message": f"Do you want to overwrite current content of '{path}' with new content?",
                     },
                 }
             )
@@ -1648,35 +1658,15 @@ class Tools:
         for source in files:
             filename, content = await self._get_file(source, terminal)
 
-            # Build destination path on NAS
+            # Build destination path
             destination = os.path.join(path, filename)
 
-            log.info(f"Writing '{destination}'")
-            result = await asyncio.to_thread(
-                write_handler,
+            result = await write_handler(
                 session,
                 destination,
                 content,
-                False,
+                __event_call__,
             )
-
-            # Ask for confirmation before overwriting an existing file
-            if result is None:
-                confirmed = await self._ask_confirmation(
-                    __event_call__,
-                    destination,
-                )
-                if not confirmed:
-                    raise ValueError(f"Overwrite of '{destination}' was rejected")
-
-                log.info(f"Overwriting '{destination}'")
-                result = await asyncio.to_thread(
-                    write_handler,
-                    session,
-                    destination,
-                    content,
-                    True,
-                )
 
             results.append(result)
 
