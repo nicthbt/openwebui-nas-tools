@@ -27,8 +27,8 @@ from open_webui.storage.provider import Storage
 from pydantic import BaseModel, Field
 
 from src.clients.synology_client import (
-    SynologyAPIException,
     SynologyClient,
+    SynologyENOENTException,
     SynologyOTPException,
 )
 from src.clients.terminal_client import OpenTerminalClient, OpenTerminalException
@@ -399,7 +399,7 @@ class Tools:
         # Check that the destination file exists
         try:
             exists = len(session.api_fs_info(path)) > 0
-        except SynologyAPIException:
+        except SynologyENOENTException:
             exists = False
 
         if exists and not overwrite:

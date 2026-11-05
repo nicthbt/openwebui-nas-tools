@@ -14,6 +14,10 @@ class SynologyAPIException(CustomToolException):
     pass
 
 
+class SynologyENOENTException(SynologyAPIException):
+    pass
+
+
 class SynologyOTPException(CustomToolException):
     pass
 
@@ -282,7 +286,13 @@ class SynologyClient:
             "path": json.dumps([path], separators=(",", ":")),
         }
 
-        response = self._api_call(api_url, data)
+        try:
+            response = self._api_call(api_url, data)
+        except SynologyAPIException as e:
+            enoent_error = e.error.get("code") == 408
+            if enoent_error:
+                raise SynologyENOENTException("No such file or directory", e.error)
+            raise
 
         return response.get("files", [])
 
