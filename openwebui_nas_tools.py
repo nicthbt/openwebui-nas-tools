@@ -318,14 +318,14 @@ class SynologyClient:
 
         return response
 
-    def api_fs_info(self, paths: list) -> list:
+    def api_fs_info(self, path: str) -> list:
         api_url, api_version = self.api.get("SYNO.FileStation.List")
 
         data = {
             "api": "SYNO.FileStation.List",
             "version": api_version,
             "method": "getinfo",
-            "path": json.dumps(paths, separators=(",", ":")),
+            "path": json.dumps([path], separators=(",", ":")),
         }
 
         response = self._api_call(api_url, data)
@@ -345,7 +345,7 @@ class SynologyClient:
             "api": "SYNO.FileStation.Upload",
             "version": api_version,
             "method": "upload",
-            "path": path,
+            "path": json.dumps(path, separators=(",", ":")),
             "overwrite": json.dumps(overwrite, separators=(",", ":")),
         }
 
@@ -1197,7 +1197,7 @@ class Tools:
     ) -> bool:
         # Check that the destination file exists
         try:
-            exists = len(session.api_fs_info([path])) > 0
+            exists = len(session.api_fs_info(path)) > 0
         except SynologyAPIException:
             exists = False
 

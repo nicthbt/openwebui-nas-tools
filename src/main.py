@@ -398,7 +398,7 @@ class Tools:
     ) -> bool:
         # Check that the destination file exists
         try:
-            exists = len(session.api_fs_info([path])) > 0
+            exists = len(session.api_fs_info(path)) > 0
         except SynologyAPIException:
             exists = False
 
