@@ -946,24 +946,33 @@ class Tools:
                 connect_handler = self._connect_api
                 browse_handler = self._browse_api
                 read_handler = self._read_api
+                stat_handler = self._stat_api
                 write_handler = self._write_api
 
             case "sftp":
                 connect_handler = self._connect_sftp
                 browse_handler = self._browse_sftp
                 read_handler = self._read_sftp
+                stat_handler = self._stat_sftp
                 write_handler = self._write_sftp
 
             case "samba":
                 connect_handler = self._connect_samba
                 browse_handler = self._browse_samba
                 read_handler = self._read_samba
+                stat_handler = self._stat_samba
                 write_handler = self._write_samba
 
             case _:
                 raise ValueError("Unknown protocol")
 
-        return connect_handler, browse_handler, read_handler, write_handler
+        return (
+            connect_handler,
+            browse_handler,
+            read_handler,
+            stat_handler,
+            write_handler,
+        )
 
     async def _connect_api(
         self,
@@ -1217,87 +1226,42 @@ class Tools:
                 content.extend(chunk)
         return bytes(content)
 
-    async def _write_api(
-        self,
-        session,
-        path: str,
-        content: bytes,
-        __event_call__: callable = None,
-    ) -> dict:
-        # Check that the destination file exists
+    def _stat_api(self, session, path: str) -> list | None:
         try:
-            await asyncio.to_thread(session.api_fs_info, path)
-            exists = True
+            return session.api_fs_info(path)
         except SynologyENOENTException:
-            exists = False
+            return None
 
-        if exists:
-            overwrite = await self._ask_confirmation(__event_call__, path)
-            if not overwrite:
-                raise ValueError(f"Overwrite of '{path}' was rejected")
-
-        await asyncio.to_thread(session.api_fs_upload, path, content, True)
-
-        return self._format_result(path, len(content))
-
-    async def _write_sftp(
-        self,
-        session,
-        path: str,
-        content: bytes,
-        __event_call__: callable = None,
-    ) -> dict:
-        # Check that the destination file exists
+    def _stat_sftp(
+        self, session, path: str
+    ) -> paramiko.sftp_attr.SFTPAttributes | None:
         try:
-            await asyncio.to_thread(session.stat, path)
-            exists = True
+            return session.stat(path)
         except OSError as e:
             if e.errno != errno.ENOENT:
                 raise
-            exists = False
+            return None
 
-        if exists:
-            overwrite = await self._ask_confirmation(__event_call__, path)
-            if not overwrite:
-                raise ValueError(f"Overwrite of '{path}' was rejected")
-
-        def write():
-            with session.open(path, mode="wb") as f:
-                f.write(content)
-
-        await asyncio.to_thread(write)
-
-        return self._format_result(path, len(content))
-
-    async def _write_samba(
-        self,
-        session,
-        path: str,
-        content: bytes,
-        __event_call__: callable = None,
-    ) -> dict:
-        # Check that the destination file exists
+    def _stat_samba(self, session, path: str) -> smbclient.SMBStatResult | None:
         try:
-            await asyncio.to_thread(smbclient.stat, path, connection_cache=session)
-            exists = True
+            return smbclient.stat(path, connection_cache=session)
         except OSError as e:
             if e.errno != errno.ENOENT:
                 raise
-            exists = False
+            return None
 
-        if exists:
-            overwrite = await self._ask_confirmation(__event_call__, path)
-            if not overwrite:
-                raise ValueError(f"Overwrite of '{path}' was rejected")
+    def _write_api(self, session, path: str, content: bytes) -> dict:
+        session.api_fs_upload(path, content, overwrite=True)
+        return self._format_result(path, len(content))
 
-        def write():
-            with smbclient.open_file(
-                path, mode="wb", connection_cache=session
-            ) as f:
-                f.write(content)
+    def _write_sftp(self, session, path: str, content: bytes) -> dict:
+        with session.open(path, mode="wb") as f:
+            f.write(content)
+        return self._format_result(path, len(content))
 
-        await asyncio.to_thread(write)
-
+    def _write_samba(self, session, path: str, content: bytes) -> dict:
+        with smbclient.open_file(path, mode="wb", connection_cache=session) as f:
+            f.write(content)
         return self._format_result(path, len(content))
 
     def _filter_ext(self, filename: str, filetypes: list) -> bool:
@@ -1432,7 +1396,7 @@ class Tools:
         :param filetypes: A list of file extensions to look for (optional, defaults to any)
         :return: JSON with results containing NAS path, filename, size in bytes, access time, modification time and search score of each file
         """
-        session, browse_handler, read_handler, _ = self.context.get()
+        session, browse_handler, read_handler, *_ = self.context.get()
 
         await self._emit_status(
             __event_emitter__,
@@ -1476,7 +1440,7 @@ class Tools:
         :param files: A list of path for files to look into
         :return: JSON with results containing file ID, source path and search snippets for each file
         """
-        session, browse_handler, read_handler, _ = self.context.get()
+        session, browse_handler, read_handler, *_ = self.context.get()
 
         await self._emit_status(
             __event_emitter__,
@@ -1547,7 +1511,7 @@ class Tools:
         :param files: A list of path for files to fetch
         :return: JSON with results containing file ID or filesystem path, filename, size in bytes and content type for each file
         """
-        session, browse_handler, read_handler, _ = self.context.get()
+        session, browse_handler, read_handler, *_ = self.context.get()
 
         await self._emit_status(
             __event_emitter__,
@@ -1638,7 +1602,7 @@ class Tools:
         :param files: A list of Open Terminal paths or file ID for files to write
         :return: JSON with results containing NAS path, filename and size in bytes for each file
         """
-        session, browse_handler, read_handler, write_handler = self.context.get()
+        session, *_, stat_handler, write_handler = self.context.get()
 
         await self._emit_status(
             __event_emitter__,
@@ -1661,11 +1625,20 @@ class Tools:
             # Build destination path
             destination = os.path.join(path, filename)
 
-            result = await write_handler(
+            # Check that the destination file exists
+            check = await asyncio.to_thread(stat_handler, session, destination)
+
+            # Ask for confirmation to overwrite existing file
+            if check is not None:
+                overwrite = await self._ask_confirmation(__event_call__, destination)
+                if not overwrite:
+                    raise ValueError(f"Overwrite of '{destination}' was rejected")
+
+            result = await asyncio.to_thread(
+                write_handler,
                 session,
                 destination,
                 content,
-                __event_call__,
             )
 
             results.append(result)
