@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from hashlib import blake2b
 
 import requests
@@ -299,7 +300,6 @@ class SynologyClient:
     def api_fs_upload(
         self,
         path: str,
-        filename: str,
         content: bytes,
         overwrite: bool = False,
     ) -> dict:
@@ -309,11 +309,11 @@ class SynologyClient:
             "api": "SYNO.FileStation.Upload",
             "version": api_version,
             "method": "upload",
-            "path": json.dumps(path, separators=(",", ":")),
+            "path": json.dumps(os.path.dirname(path), separators=(",", ":")),
             "overwrite": json.dumps(overwrite, separators=(",", ":")),
         }
 
-        files = {"files": (filename, content)}
+        files = {"files": (os.path.basename(path), content)}
 
         response = self._api_call(
             api_url,

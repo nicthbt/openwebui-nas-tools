@@ -404,12 +404,7 @@ class Tools:
         if exists and not overwrite:
             return False
 
-        session.api_fs_upload(
-            os.path.dirname(path),
-            os.path.basename(path),
-            content,
-            overwrite=overwrite,
-        )
+        session.api_fs_upload(path, content, overwrite=overwrite)
 
         return True
 
