@@ -9,6 +9,7 @@ Search on NAS for information and fetch specific file content using Open WebUI's
 - 📥 Downloads files and processes content in vector database (except image, audio, and video files).
 - ⚡ Caches files by content hash.
 - 📄 Inspects files and retrieves relevant parts.
+- 📤 Writes files from Open Terminal or the conversation back to the NAS.
 - 🔐 Secures identity and access management with isolated/user-based authentication.
 - 🧩 Integrates with Pyodide and Open Terminal.
 - 🔌 Supports multiple protocols:
@@ -72,6 +73,25 @@ The output contains for each result:
 - Filename
 - Size in bytes
 - Content type
+
+### 📤 `write_nas_files`
+
+Writes files from Open Terminal or the conversation to the NAS.
+
+When the destination file already exists, a confirmation is requested before overwriting it.
+
+Input parameters:
+
+| Parameter | Description |
+|---|---|
+| `path` | NAS directory where files are written. |
+| `files` | List of file ID or filesystem path (optional). |
+
+The output contains for each result:
+
+- NAS path
+- Filename
+- Size in bytes
 
 ## 📦 Installation
 

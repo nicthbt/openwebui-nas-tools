@@ -4,12 +4,13 @@ author: Nicolas THIBAUT
 git_url: https://github.com/nicthbt/openwebui-nas-tools
 description: Search on NAS for information and fetch specific file content.
 license: AGPL-3.0-only
-version: 1.5.2
+version: 1.6.0
 required_open_webui_version: 0.10.2
 requirements: requests, paramiko, smbprotocol
 """
 
 import asyncio
+import errno
 import json
 import logging
 import mimetypes
@@ -21,9 +22,15 @@ from datetime import datetime
 import paramiko
 import smbclient
 from fastapi import Request
+from open_webui.models.files import Files
+from open_webui.storage.provider import Storage
 from pydantic import BaseModel, Field
 
-from src.clients.synology_client import SynologyClient, SynologyOTPException
+from src.clients.synology_client import (
+    SynologyAPIException,
+    SynologyClient,
+    SynologyOTPException,
+)
 from src.clients.terminal_client import OpenTerminalClient, OpenTerminalException
 from src.common.decorators import custom_tool, with_context
 
@@ -107,22 +114,25 @@ class Tools:
             case "api":
                 connect_handler = self._connect_api
                 browse_handler = self._browse_api
-                download_handler = self._download_api
+                read_handler = self._read_api
+                write_handler = self._write_api
 
             case "sftp":
                 connect_handler = self._connect_sftp
                 browse_handler = self._browse_sftp
-                download_handler = self._download_sftp
+                read_handler = self._read_sftp
+                write_handler = self._write_sftp
 
             case "samba":
                 connect_handler = self._connect_samba
                 browse_handler = self._browse_samba
-                download_handler = self._download_samba
+                read_handler = self._read_samba
+                write_handler = self._write_samba
 
             case _:
                 raise ValueError("Unknown protocol")
 
-        return connect_handler, browse_handler, download_handler
+        return connect_handler, browse_handler, read_handler, write_handler
 
     async def _connect_api(
         self,
@@ -362,22 +372,95 @@ class Tools:
         # Sort results and return best matches
         return self._sort_results(results, [("score", True), ("mtime", True)])
 
-    def _download_api(self, session, path: str) -> bytes:
+    def _read_api(self, session, path: str) -> bytes:
         return session.api_fs_download(path)
 
-    def _download_sftp(self, session, path: str) -> bytes:
+    def _read_sftp(self, session, path: str) -> bytes:
         content = bytearray()
         with session.open(path, mode="rb") as file:
             while chunk := file.read(65536):
                 content.extend(chunk)
         return bytes(content)
 
-    def _download_samba(self, session, path: str) -> bytes:
+    def _read_samba(self, session, path: str) -> bytes:
         content = bytearray()
         with smbclient.open_file(path, mode="rb", connection_cache=session) as file:
             while chunk := file.read(65536):
                 content.extend(chunk)
         return bytes(content)
+
+    def _write_api(
+        self,
+        session,
+        path: str,
+        content: bytes,
+        overwrite: bool = False,
+    ) -> bool:
+        # Check that the destination file exists
+        try:
+            exists = len(session.api_fs_info([path])) > 0
+        except SynologyAPIException:
+            exists = False
+
+        if exists and not overwrite:
+            return False
+
+        session.api_fs_upload(
+            os.path.dirname(path),
+            os.path.basename(path),
+            content,
+            overwrite=overwrite,
+        )
+
+        return True
+
+    def _write_sftp(
+        self,
+        session,
+        path: str,
+        content: bytes,
+        overwrite: bool = False,
+    ) -> bool:
+        # Check that the destination file exists
+        try:
+            session.stat(path)
+            exists = True
+        except OSError as e:
+            if e.errno != errno.ENOENT:
+                raise
+            exists = False
+
+        if exists and not overwrite:
+            return False
+
+        with session.open(path, mode="wb") as file:
+            file.write(content)
+
+        return True
+
+    def _write_samba(
+        self,
+        session,
+        path: str,
+        content: bytes,
+        overwrite: bool = False,
+    ) -> bool:
+        # Check that the destination file exists
+        try:
+            smbclient.stat(path, connection_cache=session)
+            exists = True
+        except OSError as e:
+            if e.errno != errno.ENOENT:
+                raise
+            exists = False
+
+        if exists and not overwrite:
+            return False
+
+        with smbclient.open_file(path, mode="wb", connection_cache=session) as file:
+            file.write(content)
+
+        return True
 
     def _filter_ext(self, filename: str, filetypes: list) -> bool:
         extension = os.path.splitext(filename)[-1]
@@ -465,6 +548,25 @@ class Tools:
             )
         return None
 
+    async def _ask_confirmation(
+        self,
+        __event_call__,
+        path: str,
+    ) -> bool:
+        if __event_call__:
+            return bool(
+                await __event_call__(
+                    {
+                        "type": "confirmation",
+                        "data": {
+                            "title": "Overwrite file",
+                            "message": f"The file '{path}' already exists. Do you want to overwrite it?",
+                        },
+                    }
+                )
+            )
+        return False
+
     @with_context
     async def search_nas_files(
         self,
@@ -486,7 +588,7 @@ class Tools:
         :param filetypes: A list of file extensions to look for (optional, defaults to any)
         :return: JSON with results containing NAS path, filename, size in bytes, access time, modification time and search score of each file
         """
-        session, browse_handler, download_handler = self.context.get()
+        session, browse_handler, read_handler, _ = self.context.get()
 
         await self._emit_status(
             __event_emitter__,
@@ -530,7 +632,7 @@ class Tools:
         :param files: A list of path for files to look into
         :return: JSON with results containing file ID, source path and search snippets for each file
         """
-        session, browse_handler, download_handler = self.context.get()
+        session, browse_handler, read_handler, _ = self.context.get()
 
         await self._emit_status(
             __event_emitter__,
@@ -549,7 +651,7 @@ class Tools:
                 raise TypeError(f"Invalid mimetype '{mimetype}' for '{path}'")
 
             log.info(f"Downloading '{path}'")
-            content = await asyncio.to_thread(download_handler, session, path)
+            content = await asyncio.to_thread(read_handler, session, path)
 
             # Upload file and process content
             file_id, file_collection = await self._upload_file(
@@ -601,7 +703,7 @@ class Tools:
         :param files: A list of path for files to fetch
         :return: JSON with results containing file ID or filesystem path, filename, size in bytes and content type for each file
         """
-        session, browse_handler, download_handler = self.context.get()
+        session, browse_handler, read_handler, _ = self.context.get()
 
         await self._emit_status(
             __event_emitter__,
@@ -627,7 +729,7 @@ class Tools:
                 raise TypeError(f"Invalid mimetype '{mimetype}' for '{path}'")
 
             log.info(f"Downloading '{path}'")
-            content = await asyncio.to_thread(download_handler, session, path)
+            content = await asyncio.to_thread(read_handler, session, path)
 
             if terminal is not None:
                 # Upload file to Open Terminal
@@ -668,6 +770,112 @@ class Tools:
         await self._emit_status(
             __event_emitter__,
             f"{len(results)} results found.",
+            done=True,
+        )
+
+        return json.dumps(results, ensure_ascii=False)
+
+    @with_context
+    async def write_nas_files(
+        self,
+        path: str,
+        files: list,
+        __request__: Request = None,
+        __user__: dict = None,
+        __metadata__: dict = None,
+        __event_emitter__: callable = None,
+        __event_call__: callable = None,
+    ) -> str:
+        """
+        Write files from Open Terminal or the conversation to NAS.
+        Best for saving files modified in the terminal or the code interpreter back to the NAS.
+
+        :param path: The NAS directory where files are written
+        :param files: A list of Open Terminal paths or file ID for files to write
+        :return: JSON with results containing NAS path, filename and size in bytes for each file
+        """
+        session, browse_handler, read_handler, write_handler = self.context.get()
+
+        await self._emit_status(
+            __event_emitter__,
+            f"Writing {len(files)} files...",
+            done=False,
+        )
+
+        # Init Open Terminal client
+        terminal = None
+        try:
+            terminal = OpenTerminalClient(__request__, __metadata__)
+        except OpenTerminalException as e:
+            log.warning(e)
+
+        results = []
+
+        for source in files:
+            # Retrieve file content based on the file ID or the filesystem path
+            if source.startswith("/"):
+                if terminal is None:
+                    raise ValueError(f"No terminal available to fetch '{source}'")
+                filename = os.path.basename(source)
+                log.info(f"Downloading '{source}'")
+                content = await asyncio.to_thread(
+                    terminal.download_file,
+                    source,
+                )
+            else:
+                file = await Files.get_file_by_id(source)
+                if file is None:
+                    raise ValueError(f"File not found '{source}'")
+                filename = file.filename
+                log.info(f"Downloading '{filename}'")
+                filepath = await asyncio.to_thread(
+                    Storage.get_file,
+                    file.path,
+                )
+                with open(filepath, "rb") as f:
+                    content = f.read()
+
+            # Build destination path on NAS
+            destination = os.path.join(path, filename)
+
+            log.info(f"Writing '{destination}'")
+            written = await asyncio.to_thread(
+                write_handler,
+                session,
+                destination,
+                content,
+                False,
+            )
+
+            # Ask for confirmation before overwriting an existing file
+            if not written:
+                confirmed = await self._ask_confirmation(
+                    __event_call__,
+                    destination,
+                )
+                if not confirmed:
+                    raise ValueError(f"Overwrite of '{destination}' was rejected")
+
+                log.info(f"Overwriting '{destination}'")
+                await asyncio.to_thread(
+                    write_handler,
+                    session,
+                    destination,
+                    content,
+                    True,
+                )
+
+            results.append(
+                {
+                    "path": destination,
+                    "name": filename,
+                    "size": len(content),
+                }
+            )
+
+        await self._emit_status(
+            __event_emitter__,
+            f"{len(results)} files written.",
             done=True,
         )
 

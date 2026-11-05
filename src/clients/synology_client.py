@@ -46,6 +46,8 @@ class SynologyClient:
         url: str,
         data: dict = None,
         stream: bool = False,
+        form: dict = None,
+        files: dict = None,
         timeout: int = 10,
     ) -> dict | bytes:
         # Insert session ID to authenticate request
@@ -53,12 +55,21 @@ class SynologyClient:
             data = data or {}
             data.update({"_sid": self.sid})
 
-        response = self.http.get(
-            url,
-            params=data,
-            stream=stream,
-            timeout=timeout,
-        )
+        if form is not None:
+            response = self.http.post(
+                url,
+                params=data,
+                data=form,
+                files=files,
+                timeout=timeout,
+            )
+        else:
+            response = self.http.get(
+                url,
+                params=data,
+                stream=stream,
+                timeout=timeout,
+            )
         response.raise_for_status()
 
         # Load response as bytes to retrieve files
@@ -82,6 +93,7 @@ class SynologyClient:
             "SYNO.FileStation.List",
             "SYNO.FileStation.Search",
             "SYNO.FileStation.Download",
+            "SYNO.FileStation.Upload",
         ]
 
         data = {
@@ -257,6 +269,52 @@ class SynologyClient:
             api_url,
             data,
             stream=True,
+            timeout=60,
+        )
+
+        return response
+
+    def api_fs_info(self, paths: list) -> list:
+        api_url, api_version = self.api.get("SYNO.FileStation.List")
+
+        data = {
+            "api": "SYNO.FileStation.List",
+            "version": api_version,
+            "method": "getinfo",
+            "path": json.dumps(paths, separators=(",", ":")),
+        }
+
+        response = self._api_call(api_url, data)
+
+        return response.get("files", [])
+
+    def api_fs_upload(
+        self,
+        path: str,
+        filename: str,
+        content: bytes,
+        overwrite: bool = False,
+    ) -> dict:
+        api_url, api_version = self.api.get("SYNO.FileStation.Upload")
+
+        data = {
+            "api": "SYNO.FileStation.Upload",
+            "version": api_version,
+            "method": "upload",
+        }
+
+        form = {
+            "path": path,
+            "overwrite": json.dumps(overwrite, separators=(",", ":")),
+        }
+
+        files = {"files": (filename, content)}
+
+        response = self._api_call(
+            api_url,
+            data,
+            form=form,
+            files=files,
             timeout=60,
         )
 
