@@ -301,7 +301,6 @@ class SynologyClient:
         self,
         path: str,
         content: bytes,
-        overwrite: bool = False,
     ) -> dict:
         api_url, api_version = self.api.get("SYNO.FileStation.Upload")
 
@@ -310,7 +309,7 @@ class SynologyClient:
             "version": api_version,
             "method": "upload",
             "path": json.dumps(os.path.dirname(path), separators=(",", ":")),
-            "overwrite": json.dumps(overwrite, separators=(",", ":")),
+            "overwrite": json.dumps(True, separators=(",", ":")),
         }
 
         files = {"files": (os.path.basename(path), content)}

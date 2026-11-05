@@ -346,7 +346,6 @@ class SynologyClient:
         self,
         path: str,
         content: bytes,
-        overwrite: bool = False,
     ) -> dict:
         api_url, api_version = self.api.get("SYNO.FileStation.Upload")
 
@@ -355,7 +354,7 @@ class SynologyClient:
             "version": api_version,
             "method": "upload",
             "path": json.dumps(os.path.dirname(path), separators=(",", ":")),
-            "overwrite": json.dumps(overwrite, separators=(",", ":")),
+            "overwrite": json.dumps(True, separators=(",", ":")),
         }
 
         files = {"files": (os.path.basename(path), content)}
@@ -1251,7 +1250,7 @@ class Tools:
             return None
 
     def _write_api(self, session, path: str, content: bytes) -> dict:
-        session.api_fs_upload(path, content, overwrite=True)
+        session.api_fs_upload(path, content)
         return self._format_result(path, len(content))
 
     def _write_sftp(self, session, path: str, content: bytes) -> dict:
@@ -1506,7 +1505,7 @@ class Tools:
     ) -> str:
         """
         Fetch specific files from NAS and attach them to the conversation.
-        Best for downloading raw files and processing them with other tools.
+        Best for downloading raw files and processing them as input for other tools.
 
         :param files: A list of path for files to fetch
         :return: JSON with results containing file ID or filesystem path, filename, size in bytes and content type for each file
@@ -1595,11 +1594,11 @@ class Tools:
         __event_call__: callable = None,
     ) -> str:
         """
-        Write files from Open Terminal or the conversation to NAS.
-        Best for saving files modified in the terminal or the code interpreter back to the NAS.
+        Write files on NAS.
+        Best for saving raw files such as the output from other tools.
 
-        :param path: The NAS directory where files are written
-        :param files: A list of Open Terminal paths or file ID for files to write
+        :param path: The directory to save the files into
+        :param files: A list of file ID or filesystem path
         :return: JSON with results containing NAS path, filename and size in bytes for each file
         """
         session, *_, stat_handler, write_handler = self.context.get()
@@ -1625,13 +1624,13 @@ class Tools:
             # Build destination path
             destination = os.path.join(path, filename)
 
-            # Check that the destination file exists
-            check = await asyncio.to_thread(stat_handler, session, destination)
+            # Check for existing file
+            file_stat = await asyncio.to_thread(stat_handler, session, destination)
 
             # Ask for confirmation to overwrite existing file
-            if check is not None:
-                overwrite = await self._ask_confirmation(__event_call__, destination)
-                if not overwrite:
+            if file_stat is not None:
+                confirmation = await self._ask_confirmation(__event_call__, destination)
+                if not confirmation:
                     raise ValueError(f"Overwrite of '{destination}' was rejected")
 
             result = await asyncio.to_thread(
