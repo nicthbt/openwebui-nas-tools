@@ -398,7 +398,8 @@ class Tools:
     ) -> bool:
         # Check that the destination file exists
         try:
-            exists = len(session.api_fs_info(path)) > 0
+            session.api_fs_info(path)
+            exists = True
         except SynologyENOENTException:
             exists = False
 
@@ -554,16 +555,14 @@ class Tools:
         path: str,
     ) -> bool:
         if __event_call__:
-            return bool(
-                await __event_call__(
-                    {
-                        "type": "confirmation",
-                        "data": {
-                            "title": "Overwrite file",
-                            "message": f"The file '{path}' already exists. Do you want to overwrite it?",
-                        },
-                    }
-                )
+            return await __event_call__(
+                {
+                    "type": "confirmation",
+                    "data": {
+                        "title": "Overwrite file",
+                        "message": f"Do you want to overwriting existing file '{path}' with new content?",
+                    },
+                }
             )
         return False
 
