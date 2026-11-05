@@ -375,15 +375,15 @@ class Tools:
 
     def _read_sftp(self, session, path: str) -> bytes:
         content = bytearray()
-        with session.open(path, mode="rb") as file:
-            while chunk := file.read(65536):
+        with session.open(path, mode="rb") as f:
+            while chunk := f.read(65536):
                 content.extend(chunk)
         return bytes(content)
 
     def _read_samba(self, session, path: str) -> bytes:
         content = bytearray()
-        with smbclient.open_file(path, mode="rb", connection_cache=session) as file:
-            while chunk := file.read(65536):
+        with smbclient.open_file(path, mode="rb", connection_cache=session) as f:
+            while chunk := f.read(65536):
                 content.extend(chunk)
         return bytes(content)
 
@@ -406,7 +406,7 @@ class Tools:
 
         session.api_fs_upload(path, content, overwrite=overwrite)
 
-        return self._format_result(path, os.path.basename(path), len(content))
+        return self._format_result(path, len(content))
 
     def _write_sftp(
         self,
@@ -427,10 +427,10 @@ class Tools:
         if exists and not overwrite:
             return None
 
-        with session.open(path, mode="wb") as file:
-            file.write(content)
+        with session.open(path, mode="wb") as f:
+            f.write(content)
 
-        return self._format_result(path, os.path.basename(path), len(content))
+        return self._format_result(path, len(content))
 
     def _write_samba(
         self,
@@ -451,10 +451,10 @@ class Tools:
         if exists and not overwrite:
             return None
 
-        with smbclient.open_file(path, mode="wb", connection_cache=session) as file:
-            file.write(content)
+        with smbclient.open_file(path, mode="wb", connection_cache=session) as f:
+            f.write(content)
 
-        return self._format_result(path, os.path.basename(path), len(content))
+        return self._format_result(path, len(content))
 
     def _filter_ext(self, filename: str, filetypes: list) -> bool:
         extension = os.path.splitext(filename)[-1]
@@ -497,12 +497,11 @@ class Tools:
                 for match_size in self._seq_match(path, keywords)
             )
 
-        return self._format_result(path, name, size, atime, mtime, score)
+        return self._format_result(path, size, atime, mtime, score)
 
     def _format_result(
         self,
         path: str,
-        name: str,
         size: int,
         atime: int = None,
         mtime: int = None,
@@ -510,7 +509,7 @@ class Tools:
     ) -> dict:
         result = {
             "path": path,
-            "name": name,
+            "name": os.path.basename(path),
             "size": size,
         }
         if atime is not None:
