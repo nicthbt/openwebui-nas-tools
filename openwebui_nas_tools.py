@@ -1226,7 +1226,7 @@ class Tools:
         path: str,
         content: bytes,
         overwrite: bool = False,
-    ) -> bool:
+    ) -> dict | None:
         # Check that the destination file exists
         try:
             session.api_fs_info(path)
@@ -1235,11 +1235,11 @@ class Tools:
             exists = False
 
         if exists and not overwrite:
-            return False
+            return None
 
         session.api_fs_upload(path, content, overwrite=overwrite)
 
-        return True
+        return self._format_result(path, os.path.basename(path), len(content))
 
     def _write_sftp(
         self,
@@ -1247,7 +1247,7 @@ class Tools:
         path: str,
         content: bytes,
         overwrite: bool = False,
-    ) -> bool:
+    ) -> dict | None:
         # Check that the destination file exists
         try:
             session.stat(path)
@@ -1258,12 +1258,12 @@ class Tools:
             exists = False
 
         if exists and not overwrite:
-            return False
+            return None
 
         with session.open(path, mode="wb") as file:
             file.write(content)
 
-        return True
+        return self._format_result(path, os.path.basename(path), len(content))
 
     def _write_samba(
         self,
@@ -1271,7 +1271,7 @@ class Tools:
         path: str,
         content: bytes,
         overwrite: bool = False,
-    ) -> bool:
+    ) -> dict | None:
         # Check that the destination file exists
         try:
             smbclient.stat(path, connection_cache=session)
@@ -1282,12 +1282,12 @@ class Tools:
             exists = False
 
         if exists and not overwrite:
-            return False
+            return None
 
         with smbclient.open_file(path, mode="wb", connection_cache=session) as file:
             file.write(content)
 
-        return True
+        return self._format_result(path, os.path.basename(path), len(content))
 
     def _filter_ext(self, filename: str, filetypes: list) -> bool:
         extension = os.path.splitext(filename)[-1]
@@ -1337,17 +1337,23 @@ class Tools:
         path: str,
         name: str,
         size: int,
-        atime: int,
-        mtime: int,
+        atime: int = None,
+        mtime: int = None,
         score: float = None,
     ) -> dict:
         result = {
             "path": path,
             "name": name,
             "size": size,
-            "atime": datetime.fromtimestamp(atime).astimezone().isoformat(),
-            "mtime": datetime.fromtimestamp(mtime).astimezone().isoformat(),
         }
+        if atime is not None:
+            result.update(
+                {"atime": datetime.fromtimestamp(atime).astimezone().isoformat()}
+            )
+        if mtime is not None:
+            result.update(
+                {"mtime": datetime.fromtimestamp(mtime).astimezone().isoformat()}
+            )
         if score is not None:
             result.update({"score": score})
         return result
@@ -1643,7 +1649,7 @@ class Tools:
             destination = os.path.join(path, filename)
 
             log.info(f"Writing '{destination}'")
-            written = await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 write_handler,
                 session,
                 destination,
@@ -1652,7 +1658,7 @@ class Tools:
             )
 
             # Ask for confirmation before overwriting an existing file
-            if not written:
+            if result is None:
                 confirmed = await self._ask_confirmation(
                     __event_call__,
                     destination,
@@ -1661,7 +1667,7 @@ class Tools:
                     raise ValueError(f"Overwrite of '{destination}' was rejected")
 
                 log.info(f"Overwriting '{destination}'")
-                await asyncio.to_thread(
+                result = await asyncio.to_thread(
                     write_handler,
                     session,
                     destination,
@@ -1669,13 +1675,7 @@ class Tools:
                     True,
                 )
 
-            results.append(
-                {
-                    "path": destination,
-                    "name": filename,
-                    "size": len(content),
-                }
-            )
+            results.append(result)
 
         await self._emit_status(
             __event_emitter__,
