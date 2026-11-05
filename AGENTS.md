@@ -37,3 +37,4 @@ No tests, lint, typecheck, or CI exist in this repo. Verification = a successful
 - `@custom_tool` (`src/common/decorators.py`) mixes `CustomTool` (`src/common/base.py`) into `Tools`, providing valves, per-call context via `ContextVar`, and the Open WebUI file/RAG integration.
 - Tool methods are wrapped by `with_context`: it connects, sets the session context, and catches exceptions, returning `{"error": ...}` JSON instead of raising.
 - Protocol handlers (`api`/`sftp`/`samba`) are selected by `_get_handlers()` in `main.py`; only Synology FileStation and Open Terminal have dedicated client classes in `src/clients/`.
+- `src/common/` modules (`base`, `decorators`, `exceptions`) are duplicated across the author's Open WebUI tool repos (e.g. `openwebui-email-tools`) and must be kept in sync when changed.

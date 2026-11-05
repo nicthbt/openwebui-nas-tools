@@ -22,8 +22,6 @@ from datetime import datetime
 import paramiko
 import smbclient
 from fastapi import Request
-from open_webui.models.files import Files
-from open_webui.storage.provider import Storage
 from pydantic import BaseModel, Field
 
 from src.clients.synology_client import (
@@ -811,28 +809,7 @@ class Tools:
         results = []
 
         for source in files:
-            # Retrieve file content based on the file ID or the filesystem path
-            if source.startswith("/"):
-                if terminal is None:
-                    raise ValueError(f"No terminal available to fetch '{source}'")
-                filename = os.path.basename(source)
-                log.info(f"Downloading '{source}'")
-                content = await asyncio.to_thread(
-                    terminal.download_file,
-                    source,
-                )
-            else:
-                file = await Files.get_file_by_id(source)
-                if file is None:
-                    raise ValueError(f"File not found '{source}'")
-                filename = file.filename
-                log.info(f"Downloading '{filename}'")
-                filepath = await asyncio.to_thread(
-                    Storage.get_file,
-                    file.path,
-                )
-                with open(filepath, "rb") as f:
-                    content = f.read()
+            filename, content = await self._get_file(source, terminal)
 
             # Build destination path on NAS
             destination = os.path.join(path, filename)

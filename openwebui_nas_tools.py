@@ -15,6 +15,7 @@ import logging
 from hashlib import blake2b
 import requests
 import urllib3
+import asyncio
 import io
 import mimetypes
 import os
@@ -34,15 +35,14 @@ from open_webui.routers.retrieval import ProcessFileForm
 from open_webui.routers.retrieval import QueryCollectionsForm
 from open_webui.routers.retrieval import process_file
 from open_webui.routers.retrieval import query_collection_handler
+from open_webui.storage.provider import Storage
 from functools import wraps
-import asyncio
 import errno
 import stat
 import time
 from datetime import datetime
 import paramiko
 import smbclient
-from open_webui.storage.provider import Storage
 from pydantic import BaseModel
 from pydantic import Field
 
@@ -643,6 +643,29 @@ class CustomTool:
             "collection": file_collection,
         }
         await Config.upsert({cache_key: cache_value})
+
+    async def _get_file(self, source: str, terminal=None) -> tuple:
+        # Retrieve file content based on the file ID or the filesystem path
+        if source.startswith("/"):
+            if terminal is None:
+                raise ValueError(f"No terminal available to fetch '{source}'")
+            filename = os.path.basename(source)
+            content = await asyncio.to_thread(
+                terminal.download_file,
+                source,
+            )
+        else:
+            file = await Files.get_file_by_id(source)
+            if file is None:
+                raise ValueError(f"File not found '{source}'")
+            filename = file.filename
+            path = await asyncio.to_thread(
+                Storage.get_file,
+                file.path,
+            )
+            with open(path, "rb") as f:
+                content = f.read()
+        return filename, content
 
     async def _upload_file(
         self,
@@ -1620,28 +1643,7 @@ class Tools:
         results = []
 
         for source in files:
-            # Retrieve file content based on the file ID or the filesystem path
-            if source.startswith("/"):
-                if terminal is None:
-                    raise ValueError(f"No terminal available to fetch '{source}'")
-                filename = os.path.basename(source)
-                log.info(f"Downloading '{source}'")
-                content = await asyncio.to_thread(
-                    terminal.download_file,
-                    source,
-                )
-            else:
-                file = await Files.get_file_by_id(source)
-                if file is None:
-                    raise ValueError(f"File not found '{source}'")
-                filename = file.filename
-                log.info(f"Downloading '{filename}'")
-                filepath = await asyncio.to_thread(
-                    Storage.get_file,
-                    file.path,
-                )
-                with open(filepath, "rb") as f:
-                    content = f.read()
+            filename, content = await self._get_file(source, terminal)
 
             # Build destination path on NAS
             destination = os.path.join(path, filename)
