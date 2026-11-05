@@ -46,7 +46,6 @@ class SynologyClient:
         url: str,
         data: dict = None,
         stream: bool = False,
-        form: dict = None,
         files: dict = None,
         timeout: int = 10,
     ) -> dict | bytes:
@@ -55,11 +54,10 @@ class SynologyClient:
             data = data or {}
             data.update({"_sid": self.sid})
 
-        if form is not None:
+        if files is not None:
             response = self.http.post(
                 url,
-                params=data,
-                data=form,
+                data=data,
                 files=files,
                 timeout=timeout,
             )
@@ -301,9 +299,6 @@ class SynologyClient:
             "api": "SYNO.FileStation.Upload",
             "version": api_version,
             "method": "upload",
-        }
-
-        form = {
             "path": path,
             "overwrite": json.dumps(overwrite, separators=(",", ":")),
         }
@@ -313,7 +308,6 @@ class SynologyClient:
         response = self._api_call(
             api_url,
             data,
-            form=form,
             files=files,
             timeout=60,
         )
