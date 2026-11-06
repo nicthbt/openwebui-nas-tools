@@ -62,6 +62,7 @@ class SynologyClient:
         if files is not None:
             response = self.http.post(
                 url,
+                params={"_sid": data.pop("_sid", None)},
                 data=data,
                 files=files,
                 timeout=timeout,
@@ -200,22 +201,42 @@ class SynologyClient:
 
         return shares
 
+    def api_fs_info(self, path: str) -> list:
+        api_url, api_version = self.api.get("SYNO.FileStation.List")
+
+        data = {
+            "api": "SYNO.FileStation.List",
+            "version": api_version,
+            "method": "getinfo",
+            "path": json.dumps([path], separators=(",", ":")),
+        }
+
+        response = self._api_call(api_url, data)
+
+        files = response.get("files", [])
+
+        enoent_error = any(file.get("code", None) == 408 for file in files)
+        if enoent_error:
+            raise SynologyENOENTException("No such file or directory", response)
+
+        return files
+
     def api_fs_search_start(self, pattern: str, path: str) -> str:
         api_url, api_version = self.api.get("SYNO.FileStation.Search")
 
-        path = path.rstrip("/") if path != "/" else self.api_fs_list()
+        folders = self.api_fs_list() if path == "/" else [path.rstrip("/")]
 
         data = {
             "api": "SYNO.FileStation.Search",
             "version": api_version,
             "method": "start",
-            "recursive": True,
-            "folder_path": json.dumps(path, separators=(",", ":")),
-            "filetype": json.dumps("file", separators=(",", ":")),
+            "recursive": "true",
+            "folder_path": json.dumps(folders, separators=(",", ":")),
+            "filetype": json.dumps("file"),
         }
 
         if pattern is not None:
-            data.update({"pattern": json.dumps(pattern, separators=(",", ":"))})
+            data.update({"pattern": json.dumps(pattern)})
 
         response = self._api_call(api_url, data)
 
@@ -233,7 +254,7 @@ class SynologyClient:
             "api": "SYNO.FileStation.Search",
             "version": api_version,
             "method": "list",
-            "taskid": json.dumps(taskid, separators=(",", ":")),
+            "taskid": json.dumps(taskid),
             "offset": offset,
             "limit": 100,
             "additional": json.dumps(["size", "time"], separators=(",", ":")),
@@ -250,7 +271,7 @@ class SynologyClient:
             "api": "SYNO.FileStation.Search",
             "version": api_version,
             "method": "clean",
-            "taskid": json.dumps(taskid, separators=(",", ":")),
+            "taskid": json.dumps(taskid),
         }
 
         response = self._api_call(api_url, data)
@@ -265,7 +286,7 @@ class SynologyClient:
             "version": api_version,
             "method": "download",
             "path": json.dumps([path], separators=(",", ":")),
-            "mode": json.dumps("open", separators=(",", ":")),
+            "mode": json.dumps("open"),
         }
 
         response = self._api_call(
@@ -276,26 +297,6 @@ class SynologyClient:
         )
 
         return response
-
-    def api_fs_info(self, path: str) -> list:
-        api_url, api_version = self.api.get("SYNO.FileStation.List")
-
-        data = {
-            "api": "SYNO.FileStation.List",
-            "version": api_version,
-            "method": "getinfo",
-            "path": json.dumps([path], separators=(",", ":")),
-        }
-
-        try:
-            response = self._api_call(api_url, data)
-        except SynologyAPIException as e:
-            enoent_error = e.error.get("code") == 408
-            if enoent_error:
-                raise SynologyENOENTException("No such file or directory", e.error)
-            raise
-
-        return response.get("files", [])
 
     def api_fs_upload(
         self,
@@ -308,11 +309,11 @@ class SynologyClient:
             "api": "SYNO.FileStation.Upload",
             "version": api_version,
             "method": "upload",
-            "path": json.dumps(os.path.dirname(path), separators=(",", ":")),
-            "overwrite": json.dumps(True, separators=(",", ":")),
+            "path": os.path.dirname(path),
+            "overwrite": "true" if api_version < 3 else "overwrite",
         }
 
-        files = {"files": (os.path.basename(path), content)}
+        files = {"file": (os.path.basename(path), content)}
 
         response = self._api_call(
             api_url,

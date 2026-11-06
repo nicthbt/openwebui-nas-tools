@@ -534,10 +534,7 @@ class Tools:
             return await __event_call__(
                 {
                     "type": "confirmation",
-                    "data": {
-                        "title": "Overwrite file",
-                        "message": f"Do you want to overwrite current content of '{path}' with new content?",
-                    },
+                    "data": {"title": "Overwrite file", "message": path},
                 }
             )
         return False
