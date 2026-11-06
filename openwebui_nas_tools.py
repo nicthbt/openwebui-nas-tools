@@ -1327,7 +1327,11 @@ class Tools:
                 }
             )
         if score is not None:
-            result.update({"score": score})
+            result.update(
+                {
+                    "score": score,
+                }
+            )
         return result
 
     def _build_pattern(self, keywords: list) -> str:
@@ -1576,7 +1580,7 @@ class Tools:
         return json.dumps(results, ensure_ascii=False)
 
     @with_context
-    async def write_nas_files(
+    async def save_nas_files(
         self,
         path: str,
         files: list,

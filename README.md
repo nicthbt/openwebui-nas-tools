@@ -74,18 +74,16 @@ The output contains for each result:
 - Size in bytes
 - Content type
 
-### 📤 `write_nas_files`
+### 📤 `save_nas_files`
 
-Writes files on the NAS.
-
-When the destination file already exists, a confirmation is requested before overwriting it.
+Saves files on the NAS.
 
 Input parameters:
 
 | Parameter | Description |
 |---|---|
 | `path` | Directory to save the files into. |
-| `files` | List of file ID or filesystem path (optional). |
+| `files` | List of file ID or filesystem path. |
 
 The output contains for each result:
 

@@ -499,7 +499,11 @@ class Tools:
                 }
             )
         if score is not None:
-            result.update({"score": score})
+            result.update(
+                {
+                    "score": score,
+                }
+            )
         return result
 
     def _build_pattern(self, keywords: list) -> str:
@@ -748,7 +752,7 @@ class Tools:
         return json.dumps(results, ensure_ascii=False)
 
     @with_context
-    async def write_nas_files(
+    async def save_nas_files(
         self,
         path: str,
         files: list,
@@ -759,8 +763,8 @@ class Tools:
         __event_call__: callable = None,
     ) -> str:
         """
-        Write files on NAS.
-        Best for saving raw files such as the output from other tools.
+        Save files on NAS.
+        Best for uploading raw files such as the output from other tools.
 
         :param path: The directory to save the files into
         :param files: A list of file ID or filesystem path
