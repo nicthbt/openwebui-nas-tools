@@ -49,20 +49,15 @@ class SynologyClient:
     def _api_call(
         self,
         url: str,
-        data: dict = None,
-        stream: bool = False,
+        data: dict,
         files: dict = None,
+        stream: bool = False,
         timeout: int = 10,
-    ) -> dict | bytes:
-        # Insert session ID to authenticate request
-        if self.sid is not None:
-            data = data or {}
-            data.update({"_sid": self.sid})
-
+    ) -> dict | bytes | None:
         if files is not None:
             response = self.http.post(
                 url,
-                params={"_sid": data.pop("_sid", None)},
+                params={"_sid": self.sid} if self.sid is not None else {},
                 data=data,
                 files=files,
                 timeout=timeout,
@@ -70,7 +65,7 @@ class SynologyClient:
         else:
             response = self.http.get(
                 url,
-                params=data,
+                params={**data, "_sid": self.sid} if self.sid is not None else data,
                 stream=stream,
                 timeout=timeout,
             )
