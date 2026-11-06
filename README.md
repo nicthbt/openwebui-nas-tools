@@ -76,7 +76,7 @@ The output contains for each result:
 
 ### 📤 `save_nas_files`
 
-Saves files on the NAS.
+Saves one of more files on the NAS.
 
 Input parameters:
 
