@@ -418,11 +418,16 @@ class OpenTerminalClient:
         self.http.close()
 
     def get_cwd(self, timeout: int = 10) -> str:
-        response = self.http.get(
-            self.api.get("CWD"),
-            timeout=timeout,
-        )
-        response.raise_for_status()
+        try:
+            response = self.http.get(
+                self.api.get("CWD"),
+                timeout=timeout,
+            )
+            response.raise_for_status()
+        except Exception as e:
+            raise OpenTerminalException(
+                "Unable to get current working directory in Open Terminal", e
+            )
 
         # Load response as JSON
         response_json = response.json()
@@ -437,13 +442,20 @@ class OpenTerminalClient:
         directory: str = None,
         timeout: int = 60,
     ) -> dict:
-        response = self.http.post(
-            self.api.get("UPLOAD"),
-            params={"directory": directory or self.get_cwd()},
-            files={"file": (filename, content, mimetype or "application/octet-stream")},
-            timeout=timeout,
-        )
-        response.raise_for_status()
+        try:
+            response = self.http.post(
+                self.api.get("UPLOAD"),
+                params={"directory": directory or self.get_cwd()},
+                files={
+                    "file": (filename, content, mimetype or "application/octet-stream")
+                },
+                timeout=timeout,
+            )
+            response.raise_for_status()
+        except Exception as e:
+            raise OpenTerminalException(
+                f"Unable to upload '{filename}' to Open Terminal", e
+            )
 
         # Load response as JSON
         response_json = response.json()
@@ -459,17 +471,23 @@ class OpenTerminalClient:
         }
 
     def download_file(self, path: str, timeout: int = 60) -> bytes:
-        response = self.http.get(
-            self.api.get("VIEW"),
-            params={"path": path},
-            stream=True,
-            timeout=timeout,
-        )
-        response.raise_for_status()
+        try:
+            response = self.http.get(
+                self.api.get("VIEW"),
+                params={"path": path},
+                stream=True,
+                timeout=timeout,
+            )
+            response.raise_for_status()
 
-        content = bytearray()
-        for chunk in response.iter_content(chunk_size=65536):
-            content.extend(chunk)
+            content = bytearray()
+            for chunk in response.iter_content(chunk_size=65536):
+                content.extend(chunk)
+        except Exception as e:
+            raise OpenTerminalException(
+                f"Unable to download '{path}' from Open Terminal", e
+            )
+
         return bytes(content)
 
 
@@ -1591,8 +1609,8 @@ class Tools:
         __event_call__: callable = None,
     ) -> str:
         """
-        Write files on NAS.
-        Best for saving raw files such as the output from other tools.
+        Save files on NAS.
+        Best for uploading raw files such as the output from other tools.
 
         :param path: The directory to save the files into
         :param files: A list of file ID or filesystem path
