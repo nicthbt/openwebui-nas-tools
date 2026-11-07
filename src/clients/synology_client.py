@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from hashlib import blake2b
 
 import requests
@@ -11,6 +12,10 @@ log = logging.getLogger(__name__)
 
 
 class SynologyAPIException(CustomToolException):
+    pass
+
+
+class SynologyENOENTException(SynologyAPIException):
     pass
 
 
@@ -44,21 +49,26 @@ class SynologyClient:
     def _api_call(
         self,
         url: str,
-        data: dict = None,
+        data: dict,
+        files: dict = None,
         stream: bool = False,
         timeout: int = 10,
-    ) -> dict | bytes:
-        # Insert session ID to authenticate request
-        if self.sid is not None:
-            data = data or {}
-            data.update({"_sid": self.sid})
-
-        response = self.http.get(
-            url,
-            params=data,
-            stream=stream,
-            timeout=timeout,
-        )
+    ) -> dict | bytes | None:
+        if files is not None:
+            response = self.http.post(
+                url,
+                params={"_sid": self.sid} if self.sid is not None else {},
+                data=data,
+                files=files,
+                timeout=timeout,
+            )
+        else:
+            response = self.http.get(
+                url,
+                params={**data, "_sid": self.sid} if self.sid is not None else data,
+                stream=stream,
+                timeout=timeout,
+            )
         response.raise_for_status()
 
         # Load response as bytes to retrieve files
@@ -82,6 +92,7 @@ class SynologyClient:
             "SYNO.FileStation.List",
             "SYNO.FileStation.Search",
             "SYNO.FileStation.Download",
+            "SYNO.FileStation.Upload",
         ]
 
         data = {
@@ -185,22 +196,42 @@ class SynologyClient:
 
         return shares
 
+    def api_fs_info(self, path: str) -> list:
+        api_url, api_version = self.api.get("SYNO.FileStation.List")
+
+        data = {
+            "api": "SYNO.FileStation.List",
+            "version": api_version,
+            "method": "getinfo",
+            "path": json.dumps([path], separators=(",", ":")),
+        }
+
+        response = self._api_call(api_url, data)
+
+        files = response.get("files", [])
+
+        enoent_error = any(file.get("code", None) == 408 for file in files)
+        if enoent_error:
+            raise SynologyENOENTException("No such file or directory", response)
+
+        return files
+
     def api_fs_search_start(self, pattern: str, path: str) -> str:
         api_url, api_version = self.api.get("SYNO.FileStation.Search")
 
-        path = path.rstrip("/") if path != "/" else self.api_fs_list()
+        folders = self.api_fs_list() if path == "/" else [path.rstrip("/")]
 
         data = {
             "api": "SYNO.FileStation.Search",
             "version": api_version,
             "method": "start",
-            "recursive": True,
-            "folder_path": json.dumps(path, separators=(",", ":")),
-            "filetype": json.dumps("file", separators=(",", ":")),
+            "recursive": "true",
+            "folder_path": json.dumps(folders, separators=(",", ":")),
+            "filetype": json.dumps("file"),
         }
 
         if pattern is not None:
-            data.update({"pattern": json.dumps(pattern, separators=(",", ":"))})
+            data.update({"pattern": json.dumps(pattern)})
 
         response = self._api_call(api_url, data)
 
@@ -218,7 +249,7 @@ class SynologyClient:
             "api": "SYNO.FileStation.Search",
             "version": api_version,
             "method": "list",
-            "taskid": json.dumps(taskid, separators=(",", ":")),
+            "taskid": json.dumps(taskid),
             "offset": offset,
             "limit": 100,
             "additional": json.dumps(["size", "time"], separators=(",", ":")),
@@ -235,7 +266,7 @@ class SynologyClient:
             "api": "SYNO.FileStation.Search",
             "version": api_version,
             "method": "clean",
-            "taskid": json.dumps(taskid, separators=(",", ":")),
+            "taskid": json.dumps(taskid),
         }
 
         response = self._api_call(api_url, data)
@@ -250,13 +281,39 @@ class SynologyClient:
             "version": api_version,
             "method": "download",
             "path": json.dumps([path], separators=(",", ":")),
-            "mode": json.dumps("open", separators=(",", ":")),
+            "mode": json.dumps("open"),
         }
 
         response = self._api_call(
             api_url,
             data,
             stream=True,
+            timeout=60,
+        )
+
+        return response
+
+    def api_fs_upload(
+        self,
+        path: str,
+        content: bytes,
+    ) -> dict:
+        api_url, api_version = self.api.get("SYNO.FileStation.Upload")
+
+        data = {
+            "api": "SYNO.FileStation.Upload",
+            "version": api_version,
+            "method": "upload",
+            "path": os.path.dirname(path),
+            "overwrite": "true" if api_version < 3 else "overwrite",
+        }
+
+        files = {"file": (os.path.basename(path), content)}
+
+        response = self._api_call(
+            api_url,
+            data,
+            files=files,
             timeout=60,
         )
 

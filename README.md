@@ -9,6 +9,7 @@ Search on NAS for information and fetch specific file content using Open WebUI's
 - 📥 Downloads files and processes content in vector database (except image, audio, and video files).
 - ⚡ Caches files by content hash.
 - 📄 Inspects files and retrieves relevant parts.
+- 📤 Uploads files on the NAS.
 - 🔐 Secures identity and access management with isolated/user-based authentication.
 - 🧩 Integrates with Pyodide and Open Terminal.
 - 🔌 Supports multiple protocols:
@@ -72,6 +73,23 @@ The output contains for each result:
 - Filename
 - Size in bytes
 - Content type
+
+### 📤 `save_nas_files`
+
+Saves one of more files on the NAS.
+
+Input parameters:
+
+| Parameter | Description |
+|---|---|
+| `path` | Directory to save the files into. |
+| `files` | List of file ID or filesystem path. |
+
+The output contains for each result:
+
+- NAS path
+- Filename
+- Size in bytes
 
 ## 📦 Installation
 
