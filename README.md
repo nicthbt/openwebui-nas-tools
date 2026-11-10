@@ -9,6 +9,7 @@ Search on NAS for information and fetch specific file content using Open WebUI's
 - 📥 Downloads files and processes content in vector database (except image, audio, and video files).
 - ⚡ Caches files by content hash.
 - 📄 Inspects files and retrieves relevant parts.
+- 📤 Uploads files on the NAS.
 - 🔐 Secures identity and access management with isolated/user-based authentication.
 - 🧩 Integrates with Pyodide and Open Terminal.
 - 🔌 Supports multiple protocols:
@@ -73,6 +74,23 @@ The output contains for each result:
 - Size in bytes
 - Content type
 
+### 📤 `save_nas_files`
+
+Saves one of more files on the NAS.
+
+Input parameters:
+
+| Parameter | Description |
+|---|---|
+| `path` | Directory to save the files into. |
+| `files` | List of file ID or filesystem path. |
+
+The output contains for each result:
+
+- NAS path
+- Filename
+- Size in bytes
+
 ## 📦 Installation
 
 1. Go to `Workspace` in Open WebUI.
@@ -120,7 +138,7 @@ Restrict network access between Open WebUI and the NAS.
 
 ## ✅ Compatibility
 
-Tested **from Open WebUI 0.10.2 to 0.12.5**.
+Tested **from Open WebUI 0.10.2 to 0.13.3**.
 
 The tool imports internal Open WebUI modules, so compatibility with earlier or later releases is not guaranteed.
 
